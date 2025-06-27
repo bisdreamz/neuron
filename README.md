@@ -1,4 +1,4 @@
-# SimpleNet - High-Performance Neural Networks for Java
+# NEURON - High-Performance Neural Networks for Java
 
 ## Overview
 
