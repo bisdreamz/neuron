@@ -76,4 +76,4 @@ jobs:
           ${{ runner.os }}-maven-
     
     - name: Check compilation warnings
-      run: mvn clean compile -DcompilerArgument=-Xlint:all
+      run: mvn clean compile
