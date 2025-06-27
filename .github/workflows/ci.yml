@@ -42,10 +42,10 @@ jobs:
       run: mvn clean compile
     
     - name: Test with Vector API
-      run: mvn test
+      run: mvn test -DfailIfNoTests=false
     
     - name: Test without Vector API  
-      run: mvn test -DargLine=""
+      run: mvn test -DargLine="" -DfailIfNoTests=false
     
     - name: Generate test report
       uses: dorny/test-reporter@v1

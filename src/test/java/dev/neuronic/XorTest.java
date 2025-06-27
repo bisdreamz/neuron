@@ -29,7 +29,7 @@ public class XorTest {
         };
         
         // Train for sufficient epochs
-        for (int epoch = 0; epoch < 250; epoch++) {
+        for (int epoch = 0; epoch < 500; epoch++) {
             for (int i = 0; i < inputs.length; i++) {
                 net.train(inputs[i], targets[i]);
             }

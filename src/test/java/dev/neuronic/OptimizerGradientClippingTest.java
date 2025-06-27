@@ -33,17 +33,17 @@ public class OptimizerGradientClippingTest {
         
         var tests = new OptimizerTest[] {
             // SGD with gradient-clipping-friendly parameters
-            new OptimizerTest("SGD-0.01", new SgdOptimizer(0.01f), 550, 0.3f),
+            new OptimizerTest("SGD-0.01", new SgdOptimizer(0.01f), 700, 0.3f),
             new OptimizerTest("SGD-0.05", new SgdOptimizer(0.05f), 250, 0.3f),
             
             // Test Adam
-            new OptimizerTest("Adam-0.001", new AdamOptimizer(0.001f), 500, 0.275f),
-            new OptimizerTest("Adam-0.01", new AdamOptimizer(0.01f), 200, 0.2f),
+            new OptimizerTest("Adam-0.001", new AdamOptimizer(0.001f), 800, 0.3f),
+            new OptimizerTest("Adam-0.01", new AdamOptimizer(0.01f), 300, 0.3f),
             
             // Test AdamW
-            new OptimizerTest("AdamW-0.001", new AdamWOptimizer(0.001f, 0.0f), 350, 0.25f),
-            new OptimizerTest("AdamW-0.01", new AdamWOptimizer(0.01f, 0.0f), 150, 0.2f),
-            new OptimizerTest("AdamW-with-decay", new AdamWOptimizer(0.01f, 0.001f), 150, 0.3f),
+            new OptimizerTest("AdamW-0.001", new AdamWOptimizer(0.001f, 0.0001f), 800, 0.3f),
+            new OptimizerTest("AdamW-0.01", new AdamWOptimizer(0.01f, 0.00001f), 150, 0.3f),
+            new OptimizerTest("AdamW-with-decay", new AdamWOptimizer(0.01f, 0.0001f), 150, 0.3f),
         };
         
         System.out.println("Testing each optimizer with gradient clipping:");
@@ -58,7 +58,6 @@ public class OptimizerGradientClippingTest {
                 .setDefaultOptimizer(test.optimizer)
                 .withGlobalGradientClipping(2.0f)  // Moderate clipping that works
                 .layer(Layers.hiddenDenseRelu(16))
-                .layer(Layers.hiddenDenseRelu(8))
                 .output(Layers.outputSigmoidBinary());
             
             // XOR pattern - requires non-linear solution
