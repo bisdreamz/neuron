@@ -1,0 +1,100 @@
+TEMPLATE FOR VECTOR-OPTIONAL OPERATIONS
+=======================================
+
+For each operation that needs vector support, follow this pattern:
+
+1. Main operation class (e.g., ElementwiseMultiply.java):
+```java
+package com.nimbus.net.math.ops;
+
+import math.net.dev.neuronic.Vectorization;
+
+public final class ElementwiseMultiply {
+    
+    // Method handle for vector implementation - loaded once at startup
+    private static final java.lang.invoke.MethodHandle VECTOR_IMPL;
+    
+    static {
+        java.lang.invoke.MethodHandle impl = null;
+        if (Vectorization.isAvailable()) {
+            try {
+                Class<?> vectorClass = Class.forName(
+                    "vector.ops.math.net.dev.neuronic.ElementwiseMultiplyVector");
+                java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
+                impl = lookup.findStatic(vectorClass, "compute", 
+                    java.lang.invoke.MethodType.methodType(void.class, float[].class, float[].class, float[].class));
+            } catch (Exception e) {
+                // Vector implementation not available
+            }
+        }
+        VECTOR_IMPL = impl;
+    }
+    
+    public static void compute(float[] a, float[] b, float[] output) {
+        if (a.length != b.length || a.length != output.length)
+            throw new IllegalArgumentException("Arrays must have same length");
+            
+        if (Vectorization.shouldVectorize(a.length))
+            computeVectorized(a, b, output);
+        else
+            computeScalar(a, b, output);
+    }
+    
+    static void computeVectorized(float[] a, float[] b, float[] output) {
+        // Use cached method handle - near-zero overhead
+        if (VECTOR_IMPL != null) {
+            try {
+                VECTOR_IMPL.invokeExact(a, b, output);
+                return;
+            } catch (Throwable e) {
+                // Fall through to scalar
+            }
+        }
+        computeScalar(a, b, output);
+    }
+    
+    static void computeScalar(float[] a, float[] b, float[] output) {
+        for (int i = 0; i < a.length; i++) {
+            output[i] = a[i] * b[i];
+        }
+    }
+    
+    private ElementwiseMultiply() {} // Prevent instantiation
+}
+```
+
+2. Vector implementation class (vector/ElementwiseMultiplyVector.java):
+```java
+package com.nimbus.net.math.ops.vector;
+
+import math.net.dev.neuronic.Vectorization;
+import jdk.incubator.vector.FloatVector;
+import jdk.incubator.vector.VectorSpecies;
+
+public final class ElementwiseMultiplyVector {
+    
+    public static void compute(float[] a, float[] b, float[] output) {
+        VectorSpecies<Float> species = Vectorization.getSpecies();
+        int i = 0;
+        int upperBound = Vectorization.loopBound(a.length);
+        
+        for (; i < upperBound; i += species.length()) {
+            FloatVector va = FloatVector.fromArray(species, a, i);
+            FloatVector vb = FloatVector.fromArray(species, b, i);
+            va.mul(vb).intoArray(output, i);
+        }
+        
+        // Handle remaining elements
+        for (; i < a.length; i++) {
+            output[i] = a[i] * b[i];
+        }
+    }
+}
+```
+
+KEY POINTS:
+- NO Vector API imports in main class
+- MethodHandle cached at class initialization (one-time cost)
+- invokeExact() for maximum performance
+- Vector class only loaded if Vector API is available
+- Graceful fallback to scalar implementation

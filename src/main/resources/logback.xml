@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Suppress ALL logging from third-party libraries -->
+    <logger name="com.zaxxer" level="OFF"/>
+    <logger name="org.knowm" level="OFF"/>
+    <logger name="yank-default" level="OFF"/>
+    <logger name="com.zaxxer.hikari" level="OFF"/>
+    <logger name="org.hsqldb" level="OFF"/>
+    <logger name="ROOT" level="OFF"/>
+    
+    <!-- Turn off root logger completely -->
+    <root level="OFF"/>
+</configuration>
