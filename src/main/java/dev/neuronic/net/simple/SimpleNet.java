@@ -6,7 +6,17 @@ import dev.neuronic.net.outputs.LinearRegressionOutput;
 import dev.neuronic.net.outputs.SigmoidBinaryCrossEntropyOutput;
 import dev.neuronic.net.outputs.SoftmaxCrossEntropyOutput;
 import dev.neuronic.net.serialization.Serializable;
+import dev.neuronic.net.losses.Loss;
+import dev.neuronic.net.training.BatchTrainer;
+import dev.neuronic.net.training.TrainingCallback;
+import dev.neuronic.net.training.EarlyStoppingCallback;
+import dev.neuronic.net.training.ModelCheckpointCallback;
+import dev.neuronic.net.training.VisualizationCallback;
+import dev.neuronic.net.layers.MixedFeatureInputLayer;
+import dev.neuronic.net.layers.Feature;
+import dev.neuronic.net.Dictionary;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Base class and factory for creating type-safe neural network wrappers with automatic feature handling.
@@ -98,13 +108,21 @@ import java.util.*;
  *   <li><b>Automatic dictionaries:</b> Builds label/feature mappings during training</li>
  *   <li><b>Clear intent:</b> Method names make the use case obvious</li>
  * </ul>
+ * 
+ * @param <T> the type of the target/label for this SimpleNet variant
  */
-public abstract class SimpleNet implements Serializable {
+public abstract class SimpleNet<T> implements Serializable {
     
     // Instance fields for shared functionality
     protected final NeuralNet underlyingNet;
     protected final Set<String> outputNames;
     protected final Map<String, Integer> outputNameToIndex;
+    
+    // Feature mapping fields (common to all subclasses)
+    protected final boolean usesFeatureMapping;
+    protected final String[] featureNames;
+    protected final ConcurrentHashMap<String, Dictionary> featureDictionaries;
+    protected final Feature[] features;
     
     /**
      * Protected constructor for subclasses.
@@ -132,6 +150,36 @@ public abstract class SimpleNet implements Serializable {
         } else {
             this.outputNames = null;
             this.outputNameToIndex = null;
+        }
+        
+        // Initialize feature mapping fields
+        Layer inputLayer = underlyingNet.getInputLayer();
+        if (inputLayer instanceof MixedFeatureInputLayer) {
+            this.usesFeatureMapping = true;
+            MixedFeatureInputLayer mixedLayer = (MixedFeatureInputLayer) inputLayer;
+            this.features = mixedLayer.getFeatures();
+            
+            // Get feature names and replace nulls with generated names
+            String[] originalNames = mixedLayer.getFeatureNames();
+            this.featureNames = new String[originalNames.length];
+            for (int i = 0; i < originalNames.length; i++) {
+                this.featureNames[i] = (originalNames[i] != null) ? originalNames[i] : "feature_" + i;
+            }
+            
+            this.featureDictionaries = new ConcurrentHashMap<>();
+            
+            // Initialize dictionaries for features that need them
+            for (int i = 0; i < featureNames.length; i++) {
+                if (features[i].getType() == Feature.Type.EMBEDDING || 
+                    features[i].getType() == Feature.Type.ONEHOT) {
+                    featureDictionaries.put(featureNames[i], new Dictionary());
+                }
+            }
+        } else {
+            this.usesFeatureMapping = false;
+            this.features = null;
+            this.featureNames = null;
+            this.featureDictionaries = null;
         }
     }
     
@@ -238,9 +286,369 @@ public abstract class SimpleNet implements Serializable {
         return outputNames != null ? new LinkedHashSet<>(outputNames) : null;
     }
     
+    // ===============================
+    // TYPE-SAFE PREDICTION METHODS
+    // ===============================
+    
+    /**
+     * Predict using a float array input.
+     * Works for both simple models and mixed feature models.
+     * 
+     * @param input raw float array
+     * @return prediction result (type depends on subclass)
+     */
+    public Object predict(float[] input) {
+        return predictFromArray(input);
+    }
+    
+    /**
+     * Predict using a Map input.
+     * For models with mixed features that use named inputs.
+     * 
+     * @param input map of feature names to values
+     * @return prediction result (type depends on subclass)
+     */
+    public Object predict(Map<String, Object> input) {
+        if (!usesFeatureMapping) {
+            throw new IllegalArgumentException(
+                "This model does not use mixed features. Use predict(float[]) instead.");
+        }
+        return predictFromMap(input);
+    }
+    
+    // Subclasses override these to provide type-safe returns
+    protected abstract Object predictFromArray(float[] input);
+    protected abstract Object predictFromMap(Map<String, Object> input);
+    
+    /**
+     * Helper method to convert input and call the appropriate predict method.
+     * Used internally by subclasses.
+     */
+    protected float[] convertAndGetModelInput(Object input) {
+        if (input instanceof float[]) {
+            return convertFromFloatArray((float[]) input);
+        } else if (input instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> mapInput = (Map<String, Object>) input;
+            return convertFromMap(mapInput);
+        } else {
+            throw new IllegalArgumentException(
+                "Input must be float[] or Map<String, Object>. Got: " + 
+                (input == null ? "null" : input.getClass().getSimpleName()));
+        }
+    }
+    
+    // ===============================
+    // COMMON INPUT CONVERSION
+    // ===============================
+    
+    /**
+     * Convert float array input to model input.
+     * For mixed features, uses dictionaries to map float values to indices.
+     * 
+     * @param input raw float array
+     * @return converted float array ready for the model
+     */
+    protected float[] convertFromFloatArray(float[] input) {
+        if (!usesFeatureMapping) {
+            // Simple model - just return as-is
+            return input;
+        }
+        
+        // Mixed features - apply dictionary mapping
+        if (input.length != features.length) {
+            throw new IllegalArgumentException(String.format(
+                "Input array has %d elements but %d features were configured. " +
+                "Expected input format: [feature0_value, feature1_value, ..., feature%d_value]",
+                input.length, features.length, features.length - 1));
+        }
+        
+        float[] modelInput = new float[features.length];
+        for (int i = 0; i < features.length; i++) {
+            Feature feature = features[i];
+            switch (feature.getType()) {
+                case EMBEDDING:
+                case ONEHOT:
+                    // Use the float value as dictionary key
+                    Dictionary dict = featureDictionaries.get(featureNames[i]);
+                    int index = dict.getIndex(input[i]); // Float auto-boxed to Float object
+                    modelInput[i] = (float) index;
+                    break;
+                default:
+                    // PASSTHROUGH, AUTO_NORMALIZE, SCALE_BOUNDED
+                    modelInput[i] = input[i];
+                    break;
+            }
+        }
+        return modelInput;
+    }
+    
+    /**
+     * Convert map input to model input.
+     * Uses feature names to look up values and apply dictionaries.
+     * 
+     * @param input map of feature names to values
+     * @return converted float array ready for the model
+     */
+    protected float[] convertFromMap(Map<String, Object> input) {
+        if (!usesFeatureMapping) {
+            throw new IllegalArgumentException(
+                "Map input requires mixed features model. Use float[] input instead.");
+        }
+        
+        // Check if Map input is allowed (subclasses can override)
+        validateMapInput();
+        
+        if (input.size() != featureNames.length) {
+            throw new IllegalArgumentException(String.format(
+                "Input must contain exactly %d features: %s. Got %d features: %s",
+                featureNames.length, Arrays.toString(featureNames),
+                input.size(), input.keySet()));
+        }
+        
+        float[] modelInput = new float[featureNames.length];
+        
+        for (int i = 0; i < featureNames.length; i++) {
+            String featureName = featureNames[i];
+            Object value = input.get(featureName);
+            
+            if (value == null) {
+                throw new IllegalArgumentException("Missing required feature: " + featureName);
+            }
+            
+            Feature feature = features[i];
+            switch (feature.getType()) {
+                case EMBEDDING:
+                case ONEHOT:
+                    Dictionary dict = featureDictionaries.get(featureName);
+                    int index = dict.getIndex(value);
+                    modelInput[i] = (float) index;
+                    break;
+                    
+                case PASSTHROUGH:
+                case AUTO_NORMALIZE:
+                case SCALE_BOUNDED:
+                    if (value instanceof Number) {
+                        modelInput[i] = ((Number) value).floatValue();
+                    } else {
+                        throw new IllegalArgumentException(String.format(
+                            "Feature '%s' (%s) requires numerical value but received: %s",
+                            featureName, feature.getType(), value.getClass().getSimpleName()));
+                    }
+                    break;
+            }
+        }
+        
+        return modelInput;
+    }
+    
+    /**
+     * Validate that Map input is allowed for this model.
+     * Subclasses can override to add specific validation.
+     */
+    protected void validateMapInput() {
+        // Default implementation - no additional validation
+    }
+    
     // Abstract methods that subclasses must implement
     protected abstract void trainInternal(Object input, float[] targets);
     protected abstract float[] predictInternal(Object input);
+    
+    /**
+     * Get the loss function to use for training.
+     * Subclasses must specify their appropriate loss function.
+     */
+    protected abstract Loss getLossFunction();
+    
+    // ===============================
+    // BULK TRAINING METHODS
+    // ===============================
+    
+    /**
+     * Train on a batch of samples.
+     * This method handles both Map-based inputs (for mixed feature models) and 
+     * array-based inputs (for simple models).
+     * 
+     * @param inputs list of inputs - either Map<String, Object> or float[] depending on model type
+     * @param targets list of target values matching the input order
+     * @param config training configuration
+     * @return training result with metrics
+     */
+    public SimpleNetTrainingResult trainBulk(List<?> inputs, List<T> targets, 
+                                            SimpleNetTrainingConfig config) {
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException("Inputs and targets must have the same size");
+        }
+        
+        if (inputs.isEmpty()) {
+            return trainWithEncodedData(new float[0][], new float[0][], config);
+        }
+        
+        // Determine input type from first element
+        Object firstInput = inputs.get(0);
+        
+        if (firstInput instanceof Map) {
+            // Map-based inputs
+            if (!usesFeatureMapping) {
+                throw new IllegalArgumentException(
+                    "This model does not use mixed features. Use List<float[]> instead.");
+            }
+            
+            float[][] encodedInputs = new float[inputs.size()][];
+            
+            for (int i = 0; i < inputs.size(); i++) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> mapInput = (Map<String, Object>) inputs.get(i);
+                encodedInputs[i] = convertFromMap(mapInput);
+            }
+            
+            // Let subclass encode targets
+            float[][] encodedTargets = encodeTargets(targets);
+            
+            return trainWithEncodedData(encodedInputs, encodedTargets, config);
+            
+        } else if (firstInput instanceof float[]) {
+            // Array-based inputs - work for both simple and mixed feature models
+            float[][] encodedInputs = new float[inputs.size()][];
+            
+            for (int i = 0; i < inputs.size(); i++) {
+                float[] arrayInput = (float[]) inputs.get(i);
+                encodedInputs[i] = convertFromFloatArray(arrayInput);
+            }
+            
+            // Let subclass encode targets
+            float[][] encodedTargets = encodeTargets(targets);
+            
+            return trainWithEncodedData(encodedInputs, encodedTargets, config);
+            
+        } else {
+            throw new IllegalArgumentException(
+                "Inputs must be either Map<String, Object> or float[]. Got: " + 
+                firstInput.getClass().getSimpleName());
+        }
+    }
+    
+    /**
+     * Encode target values to float arrays.
+     * Subclasses implement this to handle their specific target types.
+     * 
+     * @param targets list of target values
+     * @return encoded targets as float arrays
+     */
+    protected abstract float[][] encodeTargets(List<T> targets);
+    
+    // ===============================
+    // SHARED TRAINING IMPLEMENTATION
+    // ===============================
+    
+    /**
+     * Common implementation for training with encoded data and validation split.
+     * This method is shared by all SimpleNet implementations to avoid code duplication.
+     * 
+     * @param trainInputs pre-encoded training input arrays
+     * @param trainTargets pre-encoded training target arrays
+     * @param valInputs pre-encoded validation input arrays (can be null)
+     * @param valTargets pre-encoded validation target arrays (can be null)
+     * @param config training configuration
+     * @return training result with metrics
+     */
+    protected SimpleNetTrainingResult trainWithEncodedData(float[][] trainInputs, float[][] trainTargets,
+                                                          float[][] valInputs, float[][] valTargets,
+                                                          SimpleNetTrainingConfig config) {
+        // Create BatchTrainer with appropriate loss function FIRST
+        BatchTrainer trainer = new BatchTrainer(
+            underlyingNet, 
+            getLossFunction(),
+            config.getBatchConfig()
+        );
+        
+        // Build callbacks AFTER creating trainer so we can pass its stopFlag
+        List<TrainingCallback> callbacks = buildCallbacks(config, trainer);
+        
+        // Add callbacks
+        for (TrainingCallback callback : callbacks) {
+            trainer.withCallback(callback);
+        }
+        
+        // Train
+        long startTime = System.currentTimeMillis();
+        BatchTrainer.TrainingResult batchResult;
+        
+        if (valInputs != null && valTargets != null)
+            batchResult = trainer.fit(trainInputs, trainTargets, valInputs, valTargets);
+        else
+            batchResult = trainer.fit(trainInputs, trainTargets);
+        
+        long trainingTime = System.currentTimeMillis() - startTime;
+        
+        return new SimpleNetTrainingResult(
+            batchResult, 
+            trainingTime, 
+            batchResult.getMetrics().getEpochCount()
+        );
+    }
+    
+    /**
+     * Common implementation for training with encoded data.
+     * This method is shared by all SimpleNet implementations to avoid code duplication.
+     * 
+     * @param encodedInputs pre-encoded input arrays
+     * @param encodedTargets pre-encoded target arrays
+     * @param config training configuration
+     * @return training result with metrics
+     */
+    protected SimpleNetTrainingResult trainWithEncodedData(float[][] encodedInputs, float[][] encodedTargets,
+                                                          SimpleNetTrainingConfig config) {
+        return trainWithEncodedData(encodedInputs, encodedTargets, null, null, config);
+    }
+    
+    /**
+     * Build training callbacks based on configuration.
+     * 
+     * @param config training configuration
+     * @param trainer the BatchTrainer instance to get the stopFlag from
+     * @return list of callbacks to use during training
+     */
+    protected List<TrainingCallback> buildCallbacks(SimpleNetTrainingConfig config, BatchTrainer trainer) {
+        List<TrainingCallback> callbacks = new ArrayList<>();
+        
+        if (config.isEarlyStoppingEnabled()) {
+            callbacks.add(new EarlyStoppingCallback(
+                config.getEarlyStoppingPatience(),
+                config.getEarlyStoppingMinDelta(),
+                trainer.getStopFlag()  // Use the trainer's stopFlag instead of creating a new one
+            ));
+        }
+        
+        if (config.isCheckpointingEnabled()) {
+            String monitorMetric = getCheckpointMonitorMetric();
+            callbacks.add(new ModelCheckpointCallback.WithModel(
+                underlyingNet,
+                config.getCheckpointPath(),
+                monitorMetric,
+                config.isCheckpointOnlyBest(),
+                0
+            ));
+        }
+        
+        if (config.isVisualizationEnabled()) {
+            callbacks.add(new VisualizationCallback(config.getVisualizationPath()));
+        }
+        
+        return callbacks;
+    }
+    
+    /**
+     * Get the metric to monitor for model checkpointing.
+     * Subclasses can override to customize the monitored metric.
+     * 
+     * @return metric name to monitor
+     */
+    protected String getCheckpointMonitorMetric() {
+        // Default to monitoring validation accuracy for classification
+        // and validation loss for regression
+        return "val_accuracy";
+    }
     
     // ===============================
     // FACTORY METHODS

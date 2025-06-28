@@ -59,7 +59,7 @@ public class TextDemoTest {
                 .verbosity(0) // Silent for test
                 .build();
         
-        SimpleNetTrainingResult result = model.trainBulk(sequences, labels, config);
+        SimpleNetTrainingResult result = model.trainBulk(sequences.toArray(new Object[0]), labels.toArray(new String[0]), config);
         assertNotNull(result);
         assertTrue(result.getEpochsTrained() > 0);
         

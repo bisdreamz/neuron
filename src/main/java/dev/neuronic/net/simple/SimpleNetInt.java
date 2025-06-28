@@ -8,11 +8,8 @@ import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.MixedFeatureInputLayer;
 import dev.neuronic.net.serialization.SerializationConstants;
 import dev.neuronic.net.training.BatchTrainer;
-import dev.neuronic.net.training.TrainingCallback;
-import dev.neuronic.net.training.EarlyStoppingCallback;
-import dev.neuronic.net.training.ModelCheckpointCallback;
-import dev.neuronic.net.training.VisualizationCallback;
 import dev.neuronic.net.losses.CrossEntropyLoss;
+import dev.neuronic.net.losses.Loss;
 import dev.neuronic.net.training.MetricsLogger;
 import dev.neuronic.net.training.TrainingMetrics;
 import dev.neuronic.net.training.ValidationEvaluator;
@@ -69,13 +66,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 
  * <p><b>Thread Safety:</b> All methods are thread-safe for concurrent training and prediction.
  */
-public class SimpleNetInt extends SimpleNet {
+public class SimpleNetInt extends SimpleNet<Integer> {
     
     private final Dictionary labelDictionary;
-    private final boolean usesFeatureMapping;
-    private final String[] featureNames;
-    private final ConcurrentHashMap<String, Dictionary> featureDictionaries;
-    private final Feature[] features;
     
     // Auto-buffering for mini-batch training
     private volatile int autoBatchSize = 0;  // 0 = disabled
@@ -97,36 +90,7 @@ public class SimpleNetInt extends SimpleNet {
     SimpleNetInt(NeuralNet underlyingNet, Set<String> outputNames) {
         super(underlyingNet, outputNames);
         this.labelDictionary = new Dictionary();
-        
-        // Auto-detect if this uses mixed features or simple arrays
-        Layer inputLayer = underlyingNet.getInputLayer();
-        if (inputLayer instanceof MixedFeatureInputLayer) {
-            this.usesFeatureMapping = true;
-            MixedFeatureInputLayer mixedLayer = (MixedFeatureInputLayer) inputLayer;
-            this.features = mixedLayer.getFeatures();
-            
-            // Get feature names and replace nulls with generated names
-            String[] originalNames = mixedLayer.getFeatureNames();
-            this.featureNames = new String[originalNames.length];
-            for (int i = 0; i < originalNames.length; i++) {
-                this.featureNames[i] = (originalNames[i] != null) ? originalNames[i] : "feature_" + i;
-            }
-            
-            this.featureDictionaries = new ConcurrentHashMap<>();
-            
-            // Initialize dictionaries for features that need them
-            for (int i = 0; i < featureNames.length; i++) {
-                if (features[i].getType() == Feature.Type.EMBEDDING || 
-                    features[i].getType() == Feature.Type.ONEHOT) {
-                    featureDictionaries.put(featureNames[i], new Dictionary());
-                }
-            }
-        } else {
-            this.usesFeatureMapping = false;
-            this.features = null;
-            this.featureNames = null;
-            this.featureDictionaries = null;
-        }
+        // Feature mapping initialization is now handled in the base class
     }
     
     /**
@@ -170,7 +134,7 @@ public class SimpleNetInt extends SimpleNet {
         }
         
         // Normal single-sample training
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         
         // Add label to dictionary if not seen before
         int classIndex = labelDictionary.getIndex(label);
@@ -188,7 +152,7 @@ public class SimpleNetInt extends SimpleNet {
      * @return predicted integer class label (same type as used in training)
      */
     public int predictInt(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         
         // Use the new predictArgmax method
         int predictedClassIndex = (int) underlyingNet.predictArgmax(modelInput);
@@ -206,7 +170,7 @@ public class SimpleNetInt extends SimpleNet {
      * @return array of top k class predictions, sorted by confidence (highest first)
      */
     public int[] predictTopK(Object input, int k) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         
         // Use the new predictTopK method
         float[] topKIndices = underlyingNet.predictTopK(modelInput, k);
@@ -229,7 +193,7 @@ public class SimpleNetInt extends SimpleNet {
      * @return confidence score between 0.0 and 1.0 for the top predicted class
      */
     public float predictConfidence(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         float[] probabilities = underlyingNet.predict(modelInput);
         
         int predictedClass = Utils.argmax(probabilities);
@@ -250,51 +214,6 @@ public class SimpleNetInt extends SimpleNet {
         return labelDictionary.containsValue(label);
     }
     
-    /**
-     * Train the network with multiple examples using bulk training features.
-     * Supports epochs, validation split, and callbacks.
-     * 
-     * @param inputs list of inputs (float[] or Map<String, Object>)
-     * @param labels list of label indices
-     * @param config training configuration
-     * @return training result with metrics
-     */
-    public SimpleNetTrainingResult trainBulk(List<Object> inputs, List<Integer> labels, 
-                                           SimpleNetTrainingConfig config) {
-        if (inputs.size() != labels.size()) {
-            throw new IllegalArgumentException("Inputs and labels must have the same size");
-        }
-        
-        // Convert to arrays for BatchTrainer
-        float[][] encodedInputs = new float[inputs.size()][];
-        float[][] encodedTargets = new float[labels.size()][];
-        
-        for (int i = 0; i < inputs.size(); i++) {
-            encodedInputs[i] = convertInput(inputs.get(i));
-            encodedTargets[i] = createTargetVector(getLabelIndex(labels.get(i)));
-        }
-        
-        // Build callbacks
-        List<TrainingCallback> callbacks = buildCallbacks(config);
-        
-        // Train using BatchTrainer directly
-        long startTime = System.currentTimeMillis();
-        BatchTrainer trainer = new BatchTrainer(underlyingNet, CrossEntropyLoss.INSTANCE, config.getBatchConfig());
-        
-        // Add callbacks
-        for (TrainingCallback callback : callbacks) {
-            trainer.withCallback(callback);
-        }
-        
-        BatchTrainer.TrainingResult batchResult = trainer.fit(encodedInputs, encodedTargets);
-        long trainingTime = System.currentTimeMillis() - startTime;
-        
-        return new SimpleNetTrainingResult(
-            batchResult, 
-            trainingTime, 
-            batchResult.getMetrics().getEpochCount()
-        );
-    }
     
     /**
      * Train with pre-split train and validation data.
@@ -321,7 +240,7 @@ public class SimpleNetInt extends SimpleNet {
         float[][] encodedTrainTargets = new float[trainLabels.size()][];
         
         for (int i = 0; i < trainInputs.size(); i++) {
-            encodedTrainInputs[i] = convertInput(trainInputs.get(i));
+            encodedTrainInputs[i] = convertAndGetModelInput(trainInputs.get(i));
             encodedTrainTargets[i] = createTargetVector(getLabelIndex(trainLabels.get(i)));
         }
         
@@ -334,135 +253,19 @@ public class SimpleNetInt extends SimpleNet {
             encodedValTargets = new float[valLabels.size()][];
             
             for (int i = 0; i < valInputs.size(); i++) {
-                encodedValInputs[i] = convertInput(valInputs.get(i));
+                encodedValInputs[i] = convertAndGetModelInput(valInputs.get(i));
                 encodedValTargets[i] = createTargetVector(getLabelIndex(valLabels.get(i)));
             }
         }
         
-        // Build callbacks
-        List<TrainingCallback> callbacks = buildCallbacks(config);
-        
-        // Train using BatchTrainer directly with pre-split data
-        long startTime = System.currentTimeMillis();
-        BatchTrainer trainer = new BatchTrainer(underlyingNet, CrossEntropyLoss.INSTANCE, config.getBatchConfig());
-        
-        // Add callbacks
-        for (TrainingCallback callback : callbacks) {
-            trainer.withCallback(callback);
-        }
-        
-        BatchTrainer.TrainingResult batchResult = trainer.fit(
-            encodedTrainInputs, encodedTrainTargets, 
-            encodedValInputs, encodedValTargets);
-        long trainingTime = System.currentTimeMillis() - startTime;
-        
-        return new SimpleNetTrainingResult(
-            batchResult, 
-            trainingTime, 
-            batchResult.getMetrics().getEpochCount()
-        );
+        // Use shared implementation with validation split
+        return trainWithEncodedData(encodedTrainInputs, encodedTrainTargets, 
+                                   encodedValInputs, encodedValTargets, config);
     }
+    // trainBulk is now inherited from base class
     
-    /**
-     * Train using arrays (convenience method).
-     */
-    public SimpleNetTrainingResult trainBulk(Object[] inputs, Integer[] labels,
-                                           SimpleNetTrainingConfig config) {
-        return trainBulk(Arrays.asList(inputs), Arrays.asList(labels), config);
-    }
     
-    private List<TrainingCallback> buildCallbacks(SimpleNetTrainingConfig config) {
-        List<TrainingCallback> callbacks = new ArrayList<>();
-        
-        if (config.isEarlyStoppingEnabled()) {
-            callbacks.add(new EarlyStoppingCallback(
-                config.getEarlyStoppingPatience(),
-                config.getEarlyStoppingMinDelta(),
-                new java.util.concurrent.atomic.AtomicBoolean()
-            ));
-        }
-        
-        if (config.isCheckpointingEnabled()) {
-            callbacks.add(new ModelCheckpointCallback.WithModel(
-                underlyingNet,
-                config.getCheckpointPath(),
-                "val_accuracy",  // For classification, monitor validation accuracy
-                config.isCheckpointOnlyBest(),
-                0
-            ));
-        }
-        
-        if (config.isVisualizationEnabled()) {
-            callbacks.add(new VisualizationCallback(config.getVisualizationPath()));
-        }
-        
-        return callbacks;
-    }
-    
-    // Private helper methods
-    
-    public float[] convertInput(Object input) {
-        if (usesFeatureMapping) {
-            // Handle mixed features
-            if (!(input instanceof Map)) {
-                throw new IllegalArgumentException("For mixed feature models, input must be Map<String, Object>");
-            }
-            
-            @SuppressWarnings("unchecked")
-            Map<String, Object> inputMap = (Map<String, Object>) input;
-            return convertMixedFeatures(inputMap);
-        } else {
-            // Handle raw arrays
-            if (!(input instanceof float[])) {
-                throw new IllegalArgumentException("For simple models, input must be float[]");
-            }
-            return (float[]) input;
-        }
-    }
-    
-    private float[] convertMixedFeatures(Map<String, Object> input) {
-        if (input.size() != featureNames.length) {
-            throw new IllegalArgumentException(String.format(
-                "Input must contain exactly %d features: %s. Got %d features: %s",
-                featureNames.length, java.util.Arrays.toString(featureNames),
-                input.size(), input.keySet()));
-        }
-        
-        float[] modelInput = new float[featureNames.length];
-        
-        for (int i = 0; i < featureNames.length; i++) {
-            String featureName = featureNames[i];
-            Object value = input.get(featureName);
-            
-            if (value == null) {
-                throw new IllegalArgumentException("Missing required feature: " + featureName);
-            }
-            
-            Feature feature = features[i];
-            switch (feature.getType()) {
-                case EMBEDDING:
-                case ONEHOT:
-                    Dictionary dict = featureDictionaries.get(featureName);
-                    int index = dict.getIndex(value);
-                    modelInput[i] = (float) index;
-                    break;
-                    
-                case PASSTHROUGH:
-                case AUTO_NORMALIZE:
-                case SCALE_BOUNDED:
-                    if (value instanceof Number) {
-                        modelInput[i] = ((Number) value).floatValue();
-                    } else {
-                        throw new IllegalArgumentException(String.format(
-                            "Feature '%s' (%s) requires numerical value but received: %s",
-                            featureName, feature.getType(), value.getClass().getSimpleName()));
-                    }
-                    break;
-            }
-        }
-        
-        return modelInput;
-    }
+    // Helper methods are now inherited from base class
     
     private int getLabelIndex(Integer label) {
         return labelDictionary.getIndex(label);
@@ -639,7 +442,7 @@ public class SimpleNetInt extends SimpleNet {
         float[][] batchTargets = new float[labels.size()][];
         
         for (int i = 0; i < inputs.size(); i++) {
-            batchInputs[i] = convertInput(inputs.get(i));
+            batchInputs[i] = convertAndGetModelInput(inputs.get(i));
             
             // Add label to dictionary if not seen before
             int classIndex = labelDictionary.getIndex(labels.get(i));
@@ -685,7 +488,7 @@ public class SimpleNetInt extends SimpleNet {
         // Convert inputs
         float[][] batchInputs = new float[inputs.size()][];
         for (int i = 0; i < inputs.size(); i++) {
-            batchInputs[i] = convertInput(inputs.get(i));
+            batchInputs[i] = convertAndGetModelInput(inputs.get(i));
         }
         
         // Get batch predictions
@@ -1068,9 +871,9 @@ public class SimpleNetInt extends SimpleNet {
                     simpleNet.featureNames.length, numFeatures));
             }
             
-            // Read feature names (but use generated ones for consistency)
+            // Read and restore feature names
             for (int i = 0; i < numFeatures; i++) {
-                in.readUTF(); // Read but ignore saved feature names
+                simpleNet.featureNames[i] = in.readUTF();
             }
             
             // Read feature dictionaries
@@ -1144,13 +947,56 @@ public class SimpleNetInt extends SimpleNet {
     
     @Override
     protected void trainInternal(Object input, float[] targets) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         underlyingNet.train(modelInput, targets);
     }
     
     @Override
     protected float[] predictInternal(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         return underlyingNet.predict(modelInput);
+    }
+    
+    @Override
+    protected Loss getLossFunction() {
+        return CrossEntropyLoss.INSTANCE;
+    }
+    
+    @Override
+    protected String getCheckpointMonitorMetric() {
+        return "val_accuracy";  // For classification, monitor validation accuracy
+    }
+    
+    @Override
+    protected Object predictFromArray(float[] input) {
+        float[] output = underlyingNet.predict(input);
+        int predictedClass = Utils.argmax(output);
+        
+        // Return the original label (which might be different from the internal index)
+        Object originalLabel = labelDictionary.getValue(predictedClass);
+        return originalLabel != null ? (Integer) originalLabel : predictedClass;
+    }
+    
+    @Override
+    protected Object predictFromMap(Map<String, Object> input) {
+        float[] modelInput = convertFromMap(input);
+        float[] output = underlyingNet.predict(modelInput);
+        int predictedClass = Utils.argmax(output);
+        
+        // Return the original label
+        Object originalLabel = labelDictionary.getValue(predictedClass);
+        return originalLabel != null ? (Integer) originalLabel : predictedClass;
+    }
+    
+    @Override
+    protected float[][] encodeTargets(List<Integer> targets) {
+        float[][] encoded = new float[targets.size()][];
+        
+        for (int i = 0; i < targets.size(); i++) {
+            int classIndex = getLabelIndex(targets.get(i));
+            encoded[i] = createTargetVector(classIndex);
+        }
+        
+        return encoded;
     }
 }

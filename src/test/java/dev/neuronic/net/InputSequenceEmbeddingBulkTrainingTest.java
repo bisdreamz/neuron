@@ -61,7 +61,7 @@ public class InputSequenceEmbeddingBulkTrainingTest {
                 .epochs(10)
                 .build();
         
-        SimpleNetTrainingResult result = classifier.trainBulk(sequences, labels, config);
+        SimpleNetTrainingResult result = classifier.trainBulk(sequences.toArray(new Object[0]), labels.toArray(new String[0]), config);
         
         assertNotNull(result);
         assertTrue(result.getEpochsTrained() > 0);
@@ -120,7 +120,7 @@ public class InputSequenceEmbeddingBulkTrainingTest {
                 .build();
         
         // Should handle vocabulary overflow gracefully
-        SimpleNetTrainingResult result = classifier.trainBulk(sequences, labels, config);
+        SimpleNetTrainingResult result = classifier.trainBulk(sequences.toArray(new Object[0]), labels.toArray(new String[0]), config);
         assertNotNull(result);
         
         // Test with unknown words

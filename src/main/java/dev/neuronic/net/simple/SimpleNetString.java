@@ -15,6 +15,7 @@ import dev.neuronic.net.training.EarlyStoppingCallback;
 import dev.neuronic.net.training.ModelCheckpointCallback;
 import dev.neuronic.net.training.VisualizationCallback;
 import dev.neuronic.net.losses.CrossEntropyLoss;
+import dev.neuronic.net.losses.Loss;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -88,13 +89,9 @@ import java.util.ArrayList;
  * 
  * <p><b>Thread Safety:</b> All methods are thread-safe for concurrent training and prediction.
  */
-public class SimpleNetString extends SimpleNet {
+public class SimpleNetString extends SimpleNet<String> {
     
     private final Dictionary labelDictionary;
-    private final boolean usesFeatureMapping;
-    private final String[] featureNames;
-    private final ConcurrentHashMap<String, Dictionary> featureDictionaries;
-    private final Feature[] features;
     private volatile SamplingConfig samplingConfig = SamplingConfig.argmax();
     
     /**
@@ -112,36 +109,6 @@ public class SimpleNetString extends SimpleNet {
     SimpleNetString(NeuralNet underlyingNet, Set<String> outputNames) {
         super(underlyingNet, outputNames);
         this.labelDictionary = new Dictionary();
-        
-        // Auto-detect if this uses mixed features or simple arrays
-        Layer inputLayer = underlyingNet.getInputLayer();
-        if (inputLayer instanceof MixedFeatureInputLayer) {
-            this.usesFeatureMapping = true;
-            MixedFeatureInputLayer mixedLayer = (MixedFeatureInputLayer) inputLayer;
-            this.features = mixedLayer.getFeatures();
-            
-            // Get feature names and replace nulls with generated names
-            String[] originalNames = mixedLayer.getFeatureNames();
-            this.featureNames = new String[originalNames.length];
-            for (int i = 0; i < originalNames.length; i++) {
-                this.featureNames[i] = (originalNames[i] != null) ? originalNames[i] : "feature_" + i;
-            }
-            
-            this.featureDictionaries = new ConcurrentHashMap<>();
-            
-            // Initialize dictionaries for features that need them
-            for (int i = 0; i < featureNames.length; i++) {
-                if (features[i].getType() == Feature.Type.EMBEDDING || 
-                    features[i].getType() == Feature.Type.ONEHOT) {
-                    featureDictionaries.put(featureNames[i], new Dictionary());
-                }
-            }
-        } else {
-            this.usesFeatureMapping = false;
-            this.features = null;
-            this.featureNames = null;
-            this.featureDictionaries = null;
-        }
     }
     
     /**
@@ -164,7 +131,7 @@ public class SimpleNetString extends SimpleNet {
      * @param label string class label (e.g., "positive", "spam", "urgent")
      */
     public void train(Object input, String label) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertStringInput(input);
         
         // Add label to dictionary if not seen before
         int classIndex = labelDictionary.getIndex(label);
@@ -182,7 +149,7 @@ public class SimpleNetString extends SimpleNet {
      * @return predicted string class label (same type as used in training)
      */
     public String predictString(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertStringInput(input);
         
         // Apply sampling strategy using new prediction methods
         int predictedClassIndex = applySamplingStrategy(modelInput);
@@ -219,7 +186,7 @@ public class SimpleNetString extends SimpleNet {
      * @return array of top k class predictions as strings, sorted by confidence (highest first)
      */
     public String[] predictTopK(Object input, int k) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertStringInput(input);
         float[] topKIndices = underlyingNet.predictTopK(modelInput, k);
         
         // Convert float indices to String labels
@@ -240,7 +207,7 @@ public class SimpleNetString extends SimpleNet {
      * @return confidence score between 0.0 and 1.0 for the top predicted class
      */
     public float predictConfidence(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertStringInput(input);
         float[] probabilities = underlyingNet.predict(modelInput);
         
         int predictedClass = Utils.argmax(probabilities);
@@ -261,169 +228,103 @@ public class SimpleNetString extends SimpleNet {
         return labelDictionary.containsValue(label);
     }
     
-    /**
-     * Train the network with multiple examples using bulk training features.
-     * Supports epochs, validation split, and callbacks.
-     * 
-     * @param inputs list of inputs (float[], Map<String, Object>, or String[])
-     * @param labels list of string labels
-     * @param config training configuration
-     * @return training result with metrics
-     */
-    public SimpleNetTrainingResult trainBulk(List<Object> inputs, List<String> labels, 
-                                           SimpleNetTrainingConfig config) {
-        if (inputs.size() != labels.size()) {
-            throw new IllegalArgumentException("Inputs and labels must have the same size");
-        }
-        
-        // Check if we're using InputSequenceEmbeddingLayer
-        Layer inputLayer = underlyingNet.getInputLayer();
-        if (inputLayer instanceof InputSequenceEmbeddingLayer) {
-            // Special handling for sequence embedding - use custom training
-            return trainBulkSequenceEmbedding(inputs, labels, null, null, config);
-        }
-        
-        // Convert to arrays for BatchTrainer
-        float[][] encodedInputs = new float[inputs.size()][];
-        float[][] encodedTargets = new float[labels.size()][];
-        
-        for (int i = 0; i < inputs.size(); i++) {
-            encodedInputs[i] = convertInput(inputs.get(i));
-            encodedTargets[i] = createTargetVector(getLabelIndex(labels.get(i)));
-        }
-        
-        // Build callbacks
-        List<TrainingCallback> callbacks = buildCallbacks(config);
-        
-        // Create BatchTrainer for classification
-        BatchTrainer trainer = new BatchTrainer(underlyingNet, CrossEntropyLoss.INSTANCE, config.getBatchConfig());
-        
-        // Add callbacks
-        for (TrainingCallback callback : callbacks) {
-            trainer.withCallback(callback);
-        }
-        
-        // Train using BatchTrainer
-        long startTime = System.currentTimeMillis();
-        BatchTrainer.TrainingResult batchResult = trainer.fit(
-            encodedInputs, encodedTargets);
-        long trainingTime = System.currentTimeMillis() - startTime;
-        
-        return new SimpleNetTrainingResult(
-            batchResult, 
-            trainingTime, 
-            batchResult.getMetrics().getEpochCount()
-        );
-    }
-    
-    /**
-     * Train with pre-split train and validation data.
-     * 
-     * @param trainInputs training inputs
-     * @param trainLabels training labels
-     * @param valInputs validation inputs
-     * @param valLabels validation labels
-     * @param config training configuration
-     * @return training result with metrics
-     */
-    public SimpleNetTrainingResult trainBulk(List<Object> trainInputs, List<String> trainLabels,
-                                           List<Object> valInputs, List<String> valLabels,
-                                           SimpleNetTrainingConfig config) {
-        // Validate inputs
-        if (trainInputs.size() != trainLabels.size())
-            throw new IllegalArgumentException("Training inputs and labels must have the same size");
-        
-        if (valInputs != null && valLabels != null && valInputs.size() != valLabels.size())
-            throw new IllegalArgumentException("Validation inputs and labels must have the same size");
-        
-        // Check if using sequence embedding
-        Layer inputLayer = underlyingNet.getInputLayer();
-        if (inputLayer instanceof InputSequenceEmbeddingLayer) {
-            return trainBulkSequenceEmbedding(trainInputs, trainLabels, valInputs, valLabels, config);
-        }
-        
-        // Convert training data
-        float[][] encodedTrainInputs = new float[trainInputs.size()][];
-        float[][] encodedTrainTargets = new float[trainLabels.size()][];
-        
-        for (int i = 0; i < trainInputs.size(); i++) {
-            encodedTrainInputs[i] = convertInput(trainInputs.get(i));
-            encodedTrainTargets[i] = createTargetVector(getLabelIndex(trainLabels.get(i)));
-        }
-        
-        // Convert validation data if provided
-        float[][] encodedValInputs = null;
-        float[][] encodedValTargets = null;
-        
-        if (valInputs != null && valLabels != null) {
-            encodedValInputs = new float[valInputs.size()][];
-            encodedValTargets = new float[valLabels.size()][];
-            
-            for (int i = 0; i < valInputs.size(); i++) {
-                encodedValInputs[i] = convertInput(valInputs.get(i));
-                encodedValTargets[i] = createTargetVector(getLabelIndex(valLabels.get(i)));
-            }
-        }
-        
-        // Build callbacks
-        List<TrainingCallback> callbacks = buildCallbacks(config);
-        
-        // Create BatchTrainer for classification
-        BatchTrainer trainer = new BatchTrainer(underlyingNet, CrossEntropyLoss.INSTANCE, config.getBatchConfig());
-        
-        // Add callbacks
-        for (TrainingCallback callback : callbacks) {
-            trainer.withCallback(callback);
-        }
-        
-        // Train using BatchTrainer with pre-split data
-        long startTime = System.currentTimeMillis();
-        BatchTrainer.TrainingResult batchResult = trainer.fit(
-            encodedTrainInputs, encodedTrainTargets, 
-            encodedValInputs, encodedValTargets);
-        long trainingTime = System.currentTimeMillis() - startTime;
-        
-        return new SimpleNetTrainingResult(
-            batchResult, 
-            trainingTime, 
-            batchResult.getMetrics().getEpochCount()
-        );
-    }
     
     /**
      * Train using arrays (convenience method).
      */
     public SimpleNetTrainingResult trainBulk(Object[] inputs, String[] labels,
                                            SimpleNetTrainingConfig config) {
-        return trainBulk(Arrays.asList(inputs), Arrays.asList(labels), config);
+        // Determine input type and delegate appropriately
+        if (inputs.length > 0 && inputs[0] instanceof Map) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> mapInputs = new ArrayList<>();
+            for (Object input : inputs) {
+                mapInputs.add((Map<String, Object>) input);
+            }
+            return trainBulk(mapInputs, Arrays.asList(labels), config);
+        } else if (inputs.length > 0 && inputs[0] instanceof float[]) {
+            List<float[]> arrayInputs = new ArrayList<>();
+            for (Object input : inputs) {
+                arrayInputs.add((float[]) input);
+            }
+            return trainBulk(arrayInputs, Arrays.asList(labels), config);
+        } else if (inputs.length > 0 && inputs[0] instanceof String[]) {
+            // Handle sequence inputs for language models
+            return trainBulkSequences(Arrays.asList(inputs), Arrays.asList(labels), config);
+        } else {
+            throw new IllegalArgumentException("Unsupported input type for bulk training");
+        }
     }
     
-    private List<TrainingCallback> buildCallbacks(SimpleNetTrainingConfig config) {
-        List<TrainingCallback> callbacks = new ArrayList<>();
-        
-        if (config.isEarlyStoppingEnabled()) {
-            callbacks.add(new EarlyStoppingCallback(
-                config.getEarlyStoppingPatience(),
-                config.getEarlyStoppingMinDelta(),
-                new java.util.concurrent.atomic.AtomicBoolean()
-            ));
+    @Override
+    public SimpleNetTrainingResult trainBulk(List<?> inputs, List<String> targets,
+                                            SimpleNetTrainingConfig config) {
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException("Inputs and labels must have the same size");
         }
         
-        if (config.isCheckpointingEnabled()) {
-            callbacks.add(new ModelCheckpointCallback.WithModel(
-                underlyingNet,
-                config.getCheckpointPath(),
-                "val_accuracy",  // For classification, monitor validation accuracy
-                config.isCheckpointOnlyBest(),
-                0
-            ));
+        if (inputs.isEmpty()) {
+            return trainWithEncodedData(new float[0][], new float[0][], config);
         }
         
-        if (config.isVisualizationEnabled()) {
-            callbacks.add(new VisualizationCallback(config.getVisualizationPath()));
+        // Determine input type from first element
+        Object firstInput = inputs.get(0);
+        
+        if (firstInput instanceof Map) {
+            // Map-based inputs
+            float[][] encodedInputs = new float[inputs.size()][];
+            float[][] encodedTargets = new float[targets.size()][];
+            
+            for (int i = 0; i < inputs.size(); i++) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> mapInput = (Map<String, Object>) inputs.get(i);
+                encodedInputs[i] = convertFromMap(mapInput);
+                encodedTargets[i] = createTargetVector(getLabelIndex(targets.get(i)));
+            }
+            
+            return trainWithEncodedData(encodedInputs, encodedTargets, config);
+            
+        } else if (firstInput instanceof float[]) {
+            // Array-based inputs
+            float[][] encodedInputs = new float[inputs.size()][];
+            float[][] encodedTargets = new float[targets.size()][];
+            
+            for (int i = 0; i < inputs.size(); i++) {
+                encodedInputs[i] = (float[]) inputs.get(i);
+                encodedTargets[i] = createTargetVector(getLabelIndex(targets.get(i)));
+            }
+            
+            return trainWithEncodedData(encodedInputs, encodedTargets, config);
+            
+        } else if (firstInput instanceof String[]) {
+            // Handle sequence inputs for language models
+            return trainBulkSequences(inputs, targets, config);
+            
+        } else {
+            throw new IllegalArgumentException(
+                "Inputs must be either Map<String, Object>, float[], or String[]. Got: " + 
+                firstInput.getClass().getSimpleName());
+        }
+    }
+    
+    
+    /**
+     * Train with sequences (for language model compatibility).
+     */
+    private SimpleNetTrainingResult trainBulkSequences(List<?> inputs, List<String> labels,
+                                                      SimpleNetTrainingConfig config) {
+        // Check if using sequence embedding
+        Layer inputLayer = underlyingNet.getInputLayer();
+        if (inputLayer instanceof InputSequenceEmbeddingLayer) {
+            // Cast to List<Object> for the method call
+            @SuppressWarnings("unchecked")
+            List<Object> objectInputs = (List<Object>) inputs;
+            return trainBulkSequenceEmbedding(objectInputs, labels, null, null, config);
         }
         
-        return callbacks;
+        // For non-sequence models, convert to regular training
+        throw new UnsupportedOperationException(
+            "This model does not support sequence inputs. Use trainBulkMaps or trainBulkArrays instead.");
     }
     
     /**
@@ -536,15 +437,15 @@ public class SimpleNetString extends SimpleNet {
             }
         }
         
-        // Build callbacks
-        List<TrainingCallback> callbacks = buildCallbacks(config);
-        
-        // Create BatchTrainer for classification (CrossEntropy loss)
+        // Create BatchTrainer for classification (CrossEntropy loss) FIRST
         BatchTrainer trainer = new BatchTrainer(
             underlyingNet, 
             CrossEntropyLoss.INSTANCE,
             config.getBatchConfig()
         );
+        
+        // Build callbacks AFTER creating trainer so we can pass its stopFlag
+        List<TrainingCallback> callbacks = buildCallbacks(config, trainer);
         
         // Add callbacks
         for (TrainingCallback callback : callbacks)
@@ -592,7 +493,7 @@ public class SimpleNetString extends SimpleNet {
     
     // Private helper methods
     
-    public float[] convertInput(Object input) {
+    private float[] convertStringInput(Object input) {
         // Check if this is a sequence embedding layer
         Layer inputLayer = underlyingNet.getInputLayer();
         if (inputLayer instanceof InputSequenceEmbeddingLayer) {
@@ -610,7 +511,7 @@ public class SimpleNetString extends SimpleNet {
             
             @SuppressWarnings("unchecked")
             Map<String, Object> inputMap = (Map<String, Object>) input;
-            return convertMixedFeatures(inputMap);
+            return convertFromMap(inputMap);
         } else {
             // Handle raw arrays
             if (!(input instanceof float[])) {
@@ -620,49 +521,6 @@ public class SimpleNetString extends SimpleNet {
         }
     }
     
-    private float[] convertMixedFeatures(Map<String, Object> input) {
-        if (input.size() != featureNames.length) {
-            throw new IllegalArgumentException(String.format(
-                "Input must contain exactly %d features: %s. Got %d features: %s",
-                featureNames.length, java.util.Arrays.toString(featureNames),
-                input.size(), input.keySet()));
-        }
-        
-        float[] modelInput = new float[featureNames.length];
-        
-        for (int i = 0; i < featureNames.length; i++) {
-            String featureName = featureNames[i];
-            Object value = input.get(featureName);
-            
-            if (value == null) {
-                throw new IllegalArgumentException("Missing required feature: " + featureName);
-            }
-            
-            Feature feature = features[i];
-            switch (feature.getType()) {
-                case EMBEDDING:
-                case ONEHOT:
-                    Dictionary dict = featureDictionaries.get(featureName);
-                    int index = dict.getIndex(value);
-                    modelInput[i] = (float) index;
-                    break;
-                    
-                case PASSTHROUGH:
-                case AUTO_NORMALIZE:
-                case SCALE_BOUNDED:
-                    if (value instanceof Number) {
-                        modelInput[i] = ((Number) value).floatValue();
-                    } else {
-                        throw new IllegalArgumentException(String.format(
-                            "Feature '%s' (%s) requires numerical value but received: %s",
-                            featureName, feature.getType(), value.getClass().getSimpleName()));
-                    }
-                    break;
-            }
-        }
-        
-        return modelInput;
-    }
     
     private int getLabelIndex(String label) {
         return labelDictionary.getIndex(label);
@@ -920,13 +778,61 @@ public class SimpleNetString extends SimpleNet {
     
     @Override
     protected void trainInternal(Object input, float[] targets) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertStringInput(input);
         underlyingNet.train(modelInput, targets);
     }
     
     @Override
     protected float[] predictInternal(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertStringInput(input);
         return underlyingNet.predict(modelInput);
+    }
+    
+    @Override
+    protected Loss getLossFunction() {
+        return CrossEntropyLoss.INSTANCE;
+    }
+    
+    @Override
+    protected String getCheckpointMonitorMetric() {
+        return "val_accuracy";  // For classification, monitor validation accuracy
+    }
+    
+    @Override
+    protected Object predictFromArray(float[] input) {
+        float[] output = underlyingNet.predict(input);
+        
+        // Get the predicted class index
+        int predictedClass = Utils.argmax(output);
+        
+        // Decode using label dictionary
+        Object originalLabel = labelDictionary.getValue(predictedClass);
+        return originalLabel != null ? (String) originalLabel : "class_" + predictedClass;
+    }
+    
+    @Override
+    protected Object predictFromMap(Map<String, Object> input) {
+        float[] modelInput = convertFromMap(input);
+        float[] output = underlyingNet.predict(modelInput);
+        
+        // Get the predicted class index
+        int predictedClass = Utils.argmax(output);
+        
+        // Decode using label dictionary
+        Object originalLabel = labelDictionary.getValue(predictedClass);
+        return originalLabel != null ? (String) originalLabel : "class_" + predictedClass;
+    }
+    
+    @Override
+    protected float[][] encodeTargets(List<String> targets) {
+        int numClasses = underlyingNet.getOutputLayer().getOutputSize();
+        float[][] encoded = new float[targets.size()][numClasses];
+        
+        for (int i = 0; i < targets.size(); i++) {
+            int classIndex = labelDictionary.getIndex(targets.get(i));
+            encoded[i][classIndex] = 1.0f;
+        }
+        
+        return encoded;
     }
 }

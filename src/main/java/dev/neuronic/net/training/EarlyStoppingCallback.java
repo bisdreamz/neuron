@@ -114,9 +114,9 @@ public class EarlyStoppingCallback implements TrainingCallback {
         } else {
             epochsWithoutImprovement++;
             
-            if (epochsWithoutImprovement >= patience) {
+            if (epochsWithoutImprovement >= patience && !stopFlag.get()) {
                 System.out.printf("%nEarly stopping triggered after %d epochs without improvement.%n", 
-                                 epochsWithoutImprovement);
+                                 patience);
                 System.out.printf("Best %s: %.4f at epoch %d%n", 
                                  monitor, bestValue, bestEpoch + 1);
                 

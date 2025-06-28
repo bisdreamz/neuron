@@ -250,10 +250,6 @@ public class BatchTrainer {
             if (config.learningRateSchedule != null) {
                 float newLearningRate = config.learningRateSchedule.getLearningRate(epoch, config.epochs);
                 updateModelLearningRate(model, newLearningRate);
-                
-                if (config.verbosity > 0) {
-                    System.out.printf("Epoch %d: learning rate = %.6f%n", epoch + 1, newLearningRate);
-                }
             }
             
             // Train one epoch
@@ -276,6 +272,11 @@ public class BatchTrainer {
             for (TrainingCallback callback : callbacks) {
                 callback.onEpochEnd(epoch, metrics);
             }
+        }
+        
+        // Debug: Log why training stopped
+        if (stopRequested.get() && config.verbosity > 0) {
+            System.out.println("\nTraining stopped early due to callback request.");
         }
         
         // Training complete

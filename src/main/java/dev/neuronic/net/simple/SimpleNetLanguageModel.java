@@ -5,6 +5,7 @@ import dev.neuronic.net.SamplingConfig;
 import dev.neuronic.net.layers.InputSequenceEmbeddingLayer;
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.losses.CrossEntropyLoss;
+import dev.neuronic.net.losses.Loss;
 import dev.neuronic.net.serialization.SerializationConstants;
 import dev.neuronic.net.training.BatchTrainer;
 import dev.neuronic.net.training.TrainingCallback;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
@@ -77,7 +79,7 @@ import java.util.concurrent.Executors;
  * 
  * <p><b>Thread Safety:</b> All methods are thread-safe for concurrent training and prediction.
  */
-public class SimpleNetLanguageModel extends SimpleNet {
+public class SimpleNetLanguageModel extends SimpleNet<String> {
     
     private final InputSequenceEmbeddingLayer embeddingLayer;
     private final int sequenceLength;
@@ -157,9 +159,9 @@ public class SimpleNetLanguageModel extends SimpleNet {
      * @param config training configuration
      * @return training result with metrics
      */
-    public SimpleNetTrainingResult trainBulk(List<String[]> sequences, List<String> nextWords,
+    public SimpleNetTrainingResult trainBulkSequences(List<String[]> sequences, List<String> nextWords,
                                            SimpleNetTrainingConfig config) {
-        return trainBulk(sequences, nextWords, config, null);
+        return trainBulkSequences(sequences, nextWords, config, null);
     }
     
     /**
@@ -171,7 +173,7 @@ public class SimpleNetLanguageModel extends SimpleNet {
      * @param customCallbacks additional callbacks to use during training
      * @return training result with metrics
      */
-    public SimpleNetTrainingResult trainBulk(List<String[]> sequences, List<String> nextWords,
+    public SimpleNetTrainingResult trainBulkSequences(List<String[]> sequences, List<String> nextWords,
                                            SimpleNetTrainingConfig config,
                                            List<TrainingCallback> customCallbacks) {
         if (sequences.size() != nextWords.size()) {
@@ -800,5 +802,66 @@ public class SimpleNetLanguageModel extends SimpleNet {
         
         // Get predictions
         return underlyingNet.predict(tokenIds);
+    }
+    
+    @Override
+    public SimpleNetTrainingResult trainBulk(List<?> inputs, List<String> targets,
+                                            SimpleNetTrainingConfig config) {
+        if (inputs.isEmpty()) {
+            return trainWithEncodedData(new float[0][], new float[0][], config);
+        }
+        
+        Object firstInput = inputs.get(0);
+        
+        if (firstInput instanceof String[]) {
+            // This is the expected input type for language models
+            // Cast is safe because we checked the type
+            @SuppressWarnings("unchecked")
+            List<String[]> sequences = (List<String[]>) inputs;
+            return trainBulkSequences(sequences, targets, config);
+        } else {
+            throw new UnsupportedOperationException(
+                "Language models require String[] inputs. Got: " + 
+                firstInput.getClass().getSimpleName() + 
+                ". Use String[] sequences for language model training.");
+        }
+    }
+    
+    @Override
+    protected Loss getLossFunction() {
+        return CrossEntropyLoss.INSTANCE;
+    }
+    
+    @Override
+    protected String getCheckpointMonitorMetric() {
+        return "val_accuracy";  // For language models, monitor validation accuracy
+    }
+    
+    @Override
+    protected Object predictFromArray(float[] input) {
+        // Language models don't use raw float arrays as input
+        throw new UnsupportedOperationException(
+            "Language models require String[] inputs. Use predictNext(String[]) instead.");
+    }
+    
+    @Override
+    protected Object predictFromMap(Map<String, Object> input) {
+        // Language models don't use Map inputs
+        throw new UnsupportedOperationException(
+            "Language models require String[] inputs. Use predictNext(String[]) instead.");
+    }
+    
+    @Override
+    protected float[][] encodeTargets(List<String> targets) {
+        // Ensure padding token is in vocabulary
+        ensurePaddingInitialized();
+        
+        // Convert string targets to one-hot encoded vectors
+        float[][] encoded = new float[targets.size()][];
+        for (int i = 0; i < targets.size(); i++) {
+            int tokenId = embeddingLayer.getTokenId(targets.get(i));
+            encoded[i] = createOneHotTarget(tokenId);
+        }
+        return encoded;
     }
 }

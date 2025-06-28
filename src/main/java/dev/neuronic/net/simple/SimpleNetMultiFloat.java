@@ -5,12 +5,21 @@ import dev.neuronic.net.Dictionary;
 import dev.neuronic.net.layers.Feature;
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.MixedFeatureInputLayer;
+import dev.neuronic.net.losses.MseLoss;
+import dev.neuronic.net.losses.Loss;
 import dev.neuronic.net.serialization.SerializationConstants;
+import dev.neuronic.net.training.BatchTrainer;
+import dev.neuronic.net.training.TrainingCallback;
+import dev.neuronic.net.training.EarlyStoppingCallback;
+import dev.neuronic.net.training.ModelCheckpointCallback;
+import dev.neuronic.net.training.VisualizationCallback;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,13 +86,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 
  * <p><b>Thread Safety:</b> All methods are thread-safe for concurrent training and prediction.
  */
-public class SimpleNetMultiFloat extends SimpleNet {
+public class SimpleNetMultiFloat extends SimpleNet<float[]> {
     
     private final int outputCount;
-    private final boolean usesFeatureMapping;
-    private final String[] featureNames;
-    private final ConcurrentHashMap<String, Dictionary> featureDictionaries;
-    private final Feature[] features;
     
     private boolean hasExplicitFeatureNames() {
         if (featureNames == null) return false;
@@ -116,41 +121,6 @@ public class SimpleNetMultiFloat extends SimpleNet {
     SimpleNetMultiFloat(NeuralNet underlyingNet, Set<String> outputNames) {
         super(underlyingNet, outputNames);
         this.outputCount = underlyingNet.getOutputLayer().getOutputSize();
-        Layer inputLayer = underlyingNet.getInputLayer();
-        if (inputLayer instanceof MixedFeatureInputLayer) {
-            this.usesFeatureMapping = true;
-            MixedFeatureInputLayer mixedLayer = (MixedFeatureInputLayer) inputLayer;
-            this.features = mixedLayer.getFeatures();
-            
-            String[] explicitNames = mixedLayer.getFeatureNames();
-            boolean hasExplicitNames = true;
-            for (String name : explicitNames) {
-                if (name == null) {
-                    hasExplicitNames = false;
-                    break;
-                }
-            }
-            
-            this.featureNames = hasExplicitNames ? explicitNames : generateFeatureNames(features.length);
-            this.featureDictionaries = new ConcurrentHashMap<>();
-            
-            // Initialize dictionaries for features that need them
-            for (int i = 0; i < featureNames.length; i++) {
-                if (features[i].getType() == Feature.Type.EMBEDDING || 
-                    features[i].getType() == Feature.Type.ONEHOT) {
-                    String featureName = featureNames[i];
-                    if (featureName == null) {
-                        featureName = "feature_" + i;
-                    }
-                    featureDictionaries.put(featureName, new Dictionary());
-                }
-            }
-        } else {
-            this.usesFeatureMapping = false;
-            this.features = null;
-            this.featureNames = null;
-            this.featureDictionaries = null;
-        }
     }
     
     /**
@@ -179,7 +149,7 @@ public class SimpleNetMultiFloat extends SimpleNet {
                 targets.length, outputCount));
         }
         
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         underlyingNet.train(modelInput, targets);
     }
     
@@ -190,7 +160,7 @@ public class SimpleNetMultiFloat extends SimpleNet {
      * @return predicted float array with one value per output
      */
     public float[] predictMultiFloat(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
 
         return underlyingNet.predict(modelInput);
     }
@@ -231,7 +201,7 @@ public class SimpleNetMultiFloat extends SimpleNet {
      * @return the raw neural network output
      */
     public float[] getRawOutput(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         return underlyingNet.predict(modelInput);
     }
     
@@ -377,84 +347,7 @@ public class SimpleNetMultiFloat extends SimpleNet {
     
     // Private helper methods
     
-    public float[] convertInput(Object input) {
-        if (usesFeatureMapping) {
-            // Handle mixed features
-            if (!(input instanceof Map)) {
-                throw new IllegalArgumentException("For mixed feature models, input must be Map<String, Object>");
-            }
-            
-            @SuppressWarnings("unchecked")
-            Map<String, Object> inputMap = (Map<String, Object>) input;
-            
-            if (!hasExplicitFeatureNames()) {
-                throw new IllegalArgumentException(
-                    "Cannot use Map<String,Object> input without explicit feature names. " +
-                    "Either configure feature names when creating the layer (e.g., Feature.oneHot(4, \"connectionType\")) " +
-                    "or use float[] input instead.");
-            }
-            
-            return convertMixedFeatures(inputMap);
-        } else {
-            // Handle raw arrays
-            if (!(input instanceof float[])) {
-                throw new IllegalArgumentException("For simple models, input must be float[]");
-            }
-            return (float[]) input;
-        }
-    }
     
-    private float[] convertMixedFeatures(Map<String, Object> input) {
-        if (input.size() != featureNames.length) {
-            throw new IllegalArgumentException(String.format(
-                "Input must contain exactly %d features: %s. Got %d features: %s",
-                featureNames.length, java.util.Arrays.toString(featureNames),
-                input.size(), input.keySet()));
-        }
-        
-        float[] modelInput = new float[featureNames.length];
-        
-        for (int i = 0; i < featureNames.length; i++) {
-            String featureName = featureNames[i];
-            Object value = input.get(featureName);
-            
-            if (value == null) {
-                throw new IllegalArgumentException("Missing required feature: " + featureName);
-            }
-            
-            Feature feature = features[i];
-            switch (feature.getType()) {
-                case EMBEDDING:
-                case ONEHOT:
-                    Dictionary dict = featureDictionaries.get(featureName);
-                    int index = dict.getIndex(value);
-                    modelInput[i] = (float) index;
-                    break;
-                    
-                case PASSTHROUGH:
-                case AUTO_NORMALIZE:
-                case SCALE_BOUNDED:
-                    if (value instanceof Number) {
-                        modelInput[i] = ((Number) value).floatValue();
-                    } else {
-                        throw new IllegalArgumentException(String.format(
-                            "Feature '%s' (%s) requires numerical value but received: %s",
-                            featureName, feature.getType(), value.getClass().getSimpleName()));
-                    }
-                    break;
-            }
-        }
-        
-        return modelInput;
-    }
-    
-    private String[] generateFeatureNames(int count) {
-        String[] names = new String[count];
-        for (int i = 0; i < count; i++) {
-            names[i] = "feature_" + i;
-        }
-        return names;
-    }
     
     // ===============================
     // PUBLIC UTILITY METHODS
@@ -652,13 +545,106 @@ public class SimpleNetMultiFloat extends SimpleNet {
                 targets.length, outputCount));
         }
         
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         underlyingNet.train(modelInput, targets);
     }
     
     @Override
     protected float[] predictInternal(Object input) {
-        float[] modelInput = convertInput(input);
+        float[] modelInput = convertAndGetModelInput(input);
         return underlyingNet.predict(modelInput);
+    }
+    
+    @Override
+    public SimpleNetTrainingResult trainBulk(List<?> inputs, List<float[]> targets,
+                                            SimpleNetTrainingConfig config) {
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException("Inputs and targets must have the same size");
+        }
+        
+        if (inputs.isEmpty()) {
+            return trainWithEncodedData(new float[0][], new float[0][], config);
+        }
+        
+        // Convert targets to array
+        float[][] encodedTargets = targets.toArray(new float[0][]);
+        
+        // Validate target array lengths
+        for (int i = 0; i < encodedTargets.length; i++) {
+            if (encodedTargets[i].length != outputCount) {
+                throw new IllegalArgumentException(String.format(
+                    "Target array at index %d has length %d but %d outputs expected",
+                    i, encodedTargets[i].length, outputCount));
+            }
+        }
+        
+        // Determine input type from first element
+        Object firstInput = inputs.get(0);
+        
+        if (firstInput instanceof Map) {
+            // Map-based inputs
+            float[][] encodedInputs = new float[inputs.size()][];
+            
+            for (int i = 0; i < inputs.size(); i++) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> mapInput = (Map<String, Object>) inputs.get(i);
+                encodedInputs[i] = convertFromMap(mapInput);
+            }
+            
+            return trainWithEncodedData(encodedInputs, encodedTargets, config);
+            
+        } else if (firstInput instanceof float[]) {
+            // Array-based inputs
+            float[][] encodedInputs = new float[inputs.size()][];
+            
+            for (int i = 0; i < inputs.size(); i++) {
+                encodedInputs[i] = (float[]) inputs.get(i);
+            }
+            
+            return trainWithEncodedData(encodedInputs, encodedTargets, config);
+            
+        } else {
+            throw new IllegalArgumentException(
+                "Inputs must be either Map<String, Object> or float[]. Got: " + 
+                firstInput.getClass().getSimpleName());
+        }
+    }
+    
+    
+    @Override
+    protected Loss getLossFunction() {
+        return MseLoss.INSTANCE;
+    }
+    
+    @Override
+    protected String getCheckpointMonitorMetric() {
+        return "val_loss";  // For regression, monitor validation loss
+    }
+    
+    @Override
+    protected Object predictFromArray(float[] input) {
+        return underlyingNet.predict(input);
+    }
+    
+    @Override
+    protected Object predictFromMap(Map<String, Object> input) {
+        float[] modelInput = convertFromMap(input);
+        return underlyingNet.predict(modelInput);
+    }
+    
+    @Override
+    protected void validateMapInput() {
+        if (!hasExplicitFeatureNames()) {
+            throw new IllegalArgumentException(
+                "Cannot use Map<String,Object> input without explicit feature names. " +
+                "Either configure feature names when creating the layer (e.g., Feature.oneHot(4, \"connectionType\")) " +
+                "or use float[] input instead.");
+        }
+    }
+    
+    @Override
+    protected float[][] encodeTargets(List<float[]> targets) {
+        // For multi-float regression, targets are already float arrays
+        return targets.toArray(new float[0][]);
     }
 }

@@ -78,7 +78,7 @@ class BulkTrainingIntegrationTest {
         assertNotNull(metrics.getFinalAccuracy(), "Should have final training accuracy");
         assertNotNull(metrics.getFinalValidationAccuracy(), "Should have final validation accuracy");
         assertTrue(metrics.getTotalSamplesSeen() > 0, "Should have processed training samples");
-        assertTrue(metrics.getTotalTrainingTime().toMillis() > 0, "Should have recorded training time");
+        assertTrue(metrics.getTotalTrainingTime().toNanos() > 0, "Should have recorded training time");
         
         // Verify epoch metrics
         TrainingMetrics.EpochMetrics firstEpoch = metrics.getEpochMetrics(0);
