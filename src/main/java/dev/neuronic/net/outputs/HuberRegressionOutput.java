@@ -35,7 +35,7 @@ import java.io.IOException;
  *   <li>Large delta (2.0+): More MAE-like, robust to outliers
  * </ul>
  */
-public class HuberRegressionOutput implements Layer, GradientAccumulator, Serializable {
+public class HuberRegressionOutput implements Layer, GradientAccumulator, Serializable, RegressionOutput {
     
     private final Optimizer optimizer;
     private final float[][] weights;

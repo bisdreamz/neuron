@@ -15,6 +15,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 
 /**
@@ -119,6 +121,9 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         this.optimizer = optimizer;
         this.features = features.clone(); // Defensive copy
         this.totalOutputDimension = calculateTotalOutputDimension(features);
+        
+        // Validate feature naming - must be all named or none named
+        validateFeatureNaming(features);
         
         // Initialize embedding tables only for embedding features
         this.embeddings = new float[features.length][][];
@@ -393,6 +398,71 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
             }
         }
         return true;
+    }
+    
+    /**
+     * Validate that features are either ALL named or NONE named.
+     * Mixed naming (some named, some not) is not allowed as it creates confusion.
+     * 
+     * @param features array of features to validate
+     * @throws IllegalArgumentException if features have mixed naming
+     */
+    private static void validateFeatureNaming(Feature[] features) {
+        int namedCount = 0;
+        int unnamedCount = 0;
+        List<Integer> unnamedIndices = new ArrayList<>();
+        
+        for (int i = 0; i < features.length; i++) {
+            if (features[i].getName() != null) {
+                namedCount++;
+            } else {
+                unnamedCount++;
+                unnamedIndices.add(i);
+            }
+        }
+        
+        // Check for mixed naming
+        if (namedCount > 0 && unnamedCount > 0) {
+            StringBuilder message = new StringBuilder();
+            message.append("Feature naming must be all-or-nothing. Found ")
+                   .append(namedCount).append(" named and ")
+                   .append(unnamedCount).append(" unnamed features.\n");
+            message.append("Unnamed features at indices: ").append(unnamedIndices).append("\n");
+            message.append("Either:\n");
+            message.append("1. Name ALL features (recommended for Map-based inputs):\n");
+            
+            for (int idx : unnamedIndices) {
+                Feature f = features[idx];
+                message.append("   Feature[").append(idx).append("]: ");
+                switch (f.getType()) {
+                    case EMBEDDING:
+                        message.append("Feature.embedding(").append(f.getMaxUniqueValues())
+                               .append(", ").append(f.getEmbeddingDimension())
+                               .append(", \"your_feature_name\")\n");
+                        break;
+                    case ONEHOT:
+                        message.append("Feature.oneHot(").append(f.getMaxUniqueValues())
+                               .append(", \"your_feature_name\")\n");
+                        break;
+                    case PASSTHROUGH:
+                        message.append("Feature.passthrough(\"your_feature_name\")\n");
+                        break;
+                    case AUTO_NORMALIZE:
+                        message.append("Feature.autoNormalize(\"your_feature_name\")\n");
+                        break;
+                    case SCALE_BOUNDED:
+                        message.append("Feature.autoScale(").append(f.getMinBound())
+                               .append("f, ").append(f.getMaxBound())
+                               .append("f, \"your_feature_name\")\n");
+                        break;
+                }
+            }
+            
+            message.append("2. Or use NO names (for array-based inputs only):\n");
+            message.append("   Remove names from all features that currently have them.");
+            
+            throw new IllegalArgumentException(message.toString());
+        }
     }
     
     /**

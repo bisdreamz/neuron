@@ -408,22 +408,21 @@ class MixedFeatureInputLayerTest {
     }
     
     @Test
-    void testMixedExplicitAndImplicitNames() {
+    void testMixedExplicitAndImplicitNamesNotAllowed() {
         Feature[] features = {
             Feature.embedding(1000, 32, "user_id"),
-            Feature.oneHot(4),
+            Feature.oneHot(4),  // Missing name
             Feature.passthrough("ctr")
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        // Should throw exception because of mixed naming
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        });
         
-        String[] names = layer.getFeatureNames();
-        assertEquals(3, names.length);
-        assertEquals("user_id", names[0]);
-        assertNull(names[1]);
-        assertEquals("ctr", names[2]);
-        
-        assertFalse(layer.hasExplicitFeatureNames());
+        assertTrue(ex.getMessage().contains("Feature naming must be all-or-nothing"));
+        assertTrue(ex.getMessage().contains("2 named and 1 unnamed features"));
+        assertTrue(ex.getMessage().contains("Feature.oneHot(4, \"your_feature_name\")"));
     }
     
     @Test

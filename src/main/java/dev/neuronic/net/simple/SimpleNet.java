@@ -5,6 +5,7 @@ import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.outputs.LinearRegressionOutput;
 import dev.neuronic.net.outputs.SigmoidBinaryCrossEntropyOutput;
 import dev.neuronic.net.outputs.SoftmaxCrossEntropyOutput;
+import dev.neuronic.net.outputs.RegressionOutput;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.losses.Loss;
 import dev.neuronic.net.training.BatchTrainer;
@@ -571,7 +572,7 @@ public abstract class SimpleNet<T> implements Serializable {
         }
         
         // Train
-        long startTime = System.currentTimeMillis();
+        long startTimeNanos = System.nanoTime();
         BatchTrainer.TrainingResult batchResult;
         
         if (valInputs != null && valTargets != null)
@@ -579,11 +580,17 @@ public abstract class SimpleNet<T> implements Serializable {
         else
             batchResult = trainer.fit(trainInputs, trainTargets);
         
-        long trainingTime = System.currentTimeMillis() - startTime;
+        long trainingTimeNanos = System.nanoTime() - startTimeNanos;
+        long trainingTimeMs = trainingTimeNanos / 1_000_000; // Convert to milliseconds
+        
+        // Ensure we always record at least 1ms (training can never take 0 time)
+        if (trainingTimeMs == 0 && trainingTimeNanos > 0) {
+            trainingTimeMs = 1;
+        }
         
         return new SimpleNetTrainingResult(
             batchResult, 
-            trainingTime, 
+            trainingTimeMs, 
             batchResult.getMetrics().getEpochCount()
         );
     }
@@ -903,15 +910,15 @@ public abstract class SimpleNet<T> implements Serializable {
     private static void validateSingleRegressionNetwork(NeuralNet net) {
         Layer outputLayer = net.getOutputLayer();
         
-        if (!(outputLayer instanceof LinearRegressionOutput)) {
+        if (!(outputLayer instanceof RegressionOutput)) {
             throw new IllegalArgumentException(
-                "For regression, use LinearRegression output layer. " +
+                "For regression, use a regression output layer (LinearRegression, HuberRegression, etc.). " +
                 "Found: " + outputLayer.getClass().getSimpleName());
         }
         
         if (outputLayer.getOutputSize() != 1) {
             throw new IllegalArgumentException(
-                "For single regression, use outputLinearRegression(1). " +
+                "For single regression, use a regression output with 1 output. " +
                 "Found output size: " + outputLayer.getOutputSize() + 
                 ". Use ofMultiFloatRegression() for multiple outputs.");
         }
@@ -920,15 +927,15 @@ public abstract class SimpleNet<T> implements Serializable {
     private static void validateMultiRegressionNetwork(NeuralNet net) {
         Layer outputLayer = net.getOutputLayer();
         
-        if (!(outputLayer instanceof LinearRegressionOutput)) {
+        if (!(outputLayer instanceof RegressionOutput)) {
             throw new IllegalArgumentException(
-                "For regression, use LinearRegression output layer. " +
+                "For regression, use a regression output layer (LinearRegression, HuberRegression, etc.). " +
                 "Found: " + outputLayer.getClass().getSimpleName());
         }
         
         if (outputLayer.getOutputSize() < 1) {
             throw new IllegalArgumentException(
-                "For multi-output regression, use outputLinearRegression(n) where n > 0. " +
+                "For multi-output regression, use a regression output with n > 0 outputs. " +
                 "Found output size: " + outputLayer.getOutputSize());
         }
     }

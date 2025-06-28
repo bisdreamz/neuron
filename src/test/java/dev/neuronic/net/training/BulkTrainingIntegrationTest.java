@@ -6,6 +6,8 @@ import dev.neuronic.net.NeuralNet;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import dev.neuronic.net.simple.SimpleNet;
 import dev.neuronic.net.simple.SimpleNetInt;
+import dev.neuronic.net.simple.SimpleNetTrainingConfig;
+import dev.neuronic.net.simple.SimpleNetTrainingResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -56,23 +58,23 @@ class BulkTrainingIntegrationTest {
             labels.add(label);
         }
         
-        // Create metrics tracker
-        TrainingMetrics metrics = new TrainingMetrics();
+        // Configure training with callbacks
+        SimpleNetTrainingConfig config = SimpleNetTrainingConfig.builder()
+            .batchSize(32)
+            .epochs(5)
+            .build();
         
-        // Track progress with custom callback
-        List<String> progressMessages = new ArrayList<>();
-        MetricsLogger.ProgressCallback customCallback = (epoch, epochMetrics) -> {
-            progressMessages.add(String.format("Epoch %d: val_acc=%.3f", 
-                epoch, epochMetrics.getValidationAccuracy()));
-        };
+        // Train with bulk method
+        SimpleNetTrainingResult result = classifier.trainBulk(inputs, labels, config);
         
-        // Train with bulk method and metrics collection
-        double finalValAccuracy = classifier.trainBulk(inputs, labels, 5, metrics, customCallback);
+        // Get metrics from the result
+        TrainingMetrics metrics = result.getMetrics();
+        double finalValAccuracy = result.getFinalValidationAccuracy();
         
         // Verify training completed successfully
         assertTrue(finalValAccuracy > 0.0, "Final validation accuracy should be positive");
         assertEquals(5, metrics.getEpochCount(), "Should have completed 5 epochs");
-        assertEquals(5, progressMessages.size(), "Should have received 5 progress callbacks");
+        // Note: progressMessages tracking removed as the new API doesn't support custom callbacks directly
         
         // Verify metrics were collected
         assertNotNull(metrics.getFinalAccuracy(), "Should have final training accuracy");
@@ -115,9 +117,12 @@ class BulkTrainingIntegrationTest {
         }
         
         // Train and collect metrics
-        TrainingMetrics metrics = new TrainingMetrics();
-        classifier.trainBulk(inputs, labels, 2, metrics, 
-                           MetricsLogger.ProgressCallbacks.silent());
+        SimpleNetTrainingConfig config = SimpleNetTrainingConfig.builder()
+            .batchSize(32)
+            .epochs(2)
+            .build();
+        SimpleNetTrainingResult result = classifier.trainBulk(inputs, labels, config);
+        TrainingMetrics metrics = result.getMetrics();
         
         // Test JSON export
         Path jsonFile = tempDir.resolve("test_metrics.json");
@@ -193,20 +198,7 @@ class BulkTrainingIntegrationTest {
     
     @Test
     void testProgressCallbacks() {
-        // Test different progress callback types
-        List<String> printMessages = new ArrayList<>();
-        
-        // Custom callback that captures output
-        MetricsLogger.ProgressCallback captureCallback = (epoch, metrics) -> {
-            printMessages.add(String.format("Epoch %d completed", epoch));
-        };
-        
-        // Test callback combination
-        MetricsLogger.ProgressCallback combinedCallback = 
-            MetricsLogger.ProgressCallbacks.combine(
-                captureCallback,
-                MetricsLogger.ProgressCallbacks.silent()
-            );
+        // Test basic training metrics collection without custom callbacks
         
         // Create minimal network and data
         AdamWOptimizer optimizer = new AdamWOptimizer(0.01f, 0.01f);
@@ -226,14 +218,16 @@ class BulkTrainingIntegrationTest {
             labels.add(i % 2);
         }
         
-        // Train with combined callback
-        TrainingMetrics metrics = new TrainingMetrics();
-        classifier.trainBulk(inputs, labels, 3, metrics, combinedCallback);
+        // Train with configuration
+        SimpleNetTrainingConfig config = SimpleNetTrainingConfig.builder()
+            .batchSize(32)
+            .epochs(3)
+            .build();
+        SimpleNetTrainingResult result = classifier.trainBulk(inputs, labels, config);
         
-        // Verify callbacks were called
-        assertEquals(3, printMessages.size(), "Should have received callback for each epoch");
-        assertEquals("Epoch 0 completed", printMessages.get(0), "First callback should be for epoch 0");
-        assertEquals("Epoch 2 completed", printMessages.get(2), "Last callback should be for epoch 2");
+        // Note: Custom callback testing removed as the new API doesn't support custom callbacks directly
+        // Verify training completed
+        assertEquals(3, result.getEpochsTrained(), "Should have completed 3 epochs");
     }
     
     @Test

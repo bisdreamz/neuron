@@ -91,31 +91,25 @@ class SimpleNetMultiFloatTest {
     }
     
     @Test
-    void testMixedNamedAndUnnamedFeaturesRejectsMapInput() {
+    void testMixedNamedAndUnnamedFeaturesRejectsAtConstruction() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.01f);
         
-        NeuralNet net = NeuralNet.newBuilder()
-            .setDefaultOptimizer(optimizer)
-            .layer(Layers.inputMixed(optimizer,
-                Feature.embedding(1000, 32, "user_id"),
-                Feature.oneHot(4),                         // No name
-                Feature.passthrough("score")
-            ))
-            .layer(Layers.hiddenDenseRelu(64))
-            .output(Layers.outputLinearRegression(3));
+        // This should throw an exception during network construction
+        // because features have mixed naming (some named, some not)
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            NeuralNet.newBuilder()
+                .setDefaultOptimizer(optimizer)
+                .layer(Layers.inputMixed(optimizer,
+                    Feature.embedding(1000, 32, "user_id"),
+                    Feature.oneHot(4),                         // No name - not allowed with named features
+                    Feature.passthrough("score")
+                ))
+                .layer(Layers.hiddenDenseRelu(64))
+                .output(Layers.outputLinearRegression(3));
+        });
         
-        SimpleNetMultiFloat regressor = SimpleNet.ofMultiFloatRegression(net);
-        
-        Map<String, Object> mapInput = Map.of(
-            "user_id", 123,
-            "feature_1", 2,
-            "score", 0.85f
-        );
-        
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-            () -> regressor.predictMultiFloat(mapInput));
-        
-        assertTrue(ex.getMessage().contains("Cannot use Map<String,Object> input without explicit feature names"));
+        assertTrue(ex.getMessage().contains("Feature naming must be all-or-nothing"));
+        assertTrue(ex.getMessage().contains("2 named and 1 unnamed features"));
     }
     
     @Test

@@ -24,7 +24,7 @@ import java.io.IOException;
  * - Multi-output regression
  * - Any task where outputs are real numbers
  */
-public class LinearRegressionOutput implements Layer, GradientAccumulator, Serializable {
+public class LinearRegressionOutput implements Layer, GradientAccumulator, Serializable, RegressionOutput {
     
     private final Optimizer optimizer;
     private final float[][] weights;
