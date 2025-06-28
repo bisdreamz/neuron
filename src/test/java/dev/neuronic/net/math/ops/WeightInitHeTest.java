@@ -204,7 +204,8 @@ class WeightInitHeTest {
         WeightInitHe.compute(weights, fanIn);
         
         // Verify all rows are initialized correctly
-        for (float[] row : weights) {
+        for (int i = 0; i < weights.length; i++) {
+            float[] row = weights[i];
             boolean hasNonZero = false;
             double rowSum = 0.0;
             for (float value : row) {
@@ -216,9 +217,15 @@ class WeightInitHeTest {
             assertTrue(hasNonZero, "Row should have non-zero values");
             
             // Check that RMS is reasonable (should be close to expectedScale)
+            // Use more lenient bounds for small arrays due to higher variance
             double rms = Math.sqrt(rowSum / row.length);
-            assertTrue(rms > expectedScale * 0.3 && rms < expectedScale * 3,
-                      "RMS should be reasonable for He initialization");
+            double lowerBound = row.length <= 8 ? expectedScale * 0.2 : expectedScale * 0.3;
+            double upperBound = row.length <= 8 ? expectedScale * 4.0 : expectedScale * 3.0;
+            assertTrue(rms > lowerBound && rms < upperBound,
+                      String.format("RMS should be reasonable for He initialization. " +
+                                    "Row length: %d, RMS: %.4f, Expected scale: %.4f, " +
+                                    "Acceptable range: [%.4f, %.4f]", 
+                                    row.length, rms, expectedScale, lowerBound, upperBound));
         }
     }
     
