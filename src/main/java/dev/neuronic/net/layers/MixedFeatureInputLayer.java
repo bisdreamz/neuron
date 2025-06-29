@@ -15,6 +15,7 @@ import dev.neuronic.net.serialization.SerializationService;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
@@ -367,6 +368,17 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     // Get hash positions
                     int[] positions = computeHashPositions(hashCode, hashBuckets);
                     
+                    // Debug logging
+                    if (Math.random() < 0.01) { // Log 1% of the time
+                        float gradNorm = 0;
+                        for (int j = 0; j < embeddingDim; j++) {
+                            gradNorm += upstreamGradient[gradientPosition + j] * upstreamGradient[gradientPosition + j];
+                        }
+                        gradNorm = (float) Math.sqrt(gradNorm);
+                        System.out.println("DEBUG: Hashed embedding upstream gradient norm: " + gradNorm + 
+                                         " for feature " + featureIndex + " positions: " + Arrays.toString(positions));
+                    }
+                    
                     // Accumulate gradients for each position (scaled by 1/3)
                     float scale = 1.0f / 3.0f;
                     for (int pos : positions) {
@@ -383,6 +395,11 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         for (int i = 0; i < features.length; i++) {
             if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
                 optimizer.optimize(embeddings[i], new float[0], embeddingGradients[i], new float[0]);
+                
+                // Clear gradients after update - CRITICAL!
+                for (int j = 0; j < embeddingGradients[i].length; j++) {
+                    Arrays.fill(embeddingGradients[i][j], 0.0f);
+                }
             }
         }
         
@@ -398,6 +415,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     public int getOutputSize() {
         return totalOutputDimension;
     }
+    
     
     /**
      * Get the embedding vector for a specific embedding feature and value.
