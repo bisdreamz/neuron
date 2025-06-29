@@ -16,6 +16,7 @@ import dev.neuronic.net.training.VisualizationCallback;
 import dev.neuronic.net.layers.MixedFeatureInputLayer;
 import dev.neuronic.net.layers.Feature;
 import dev.neuronic.net.Dictionary;
+import dev.neuronic.net.LRUDictionary;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -173,7 +174,11 @@ public abstract class SimpleNet<T> implements Serializable {
             for (int i = 0; i < featureNames.length; i++) {
                 if (features[i].getType() == Feature.Type.EMBEDDING || 
                     features[i].getType() == Feature.Type.ONEHOT) {
-                    featureDictionaries.put(featureNames[i], new Dictionary());
+                    // Use LRUDictionary if feature requests it
+                    Dictionary dict = features[i].isLRU() 
+                        ? new LRUDictionary(features[i].getMaxUniqueValues())
+                        : new Dictionary();
+                    featureDictionaries.put(featureNames[i], dict);
                 }
             }
         } else {
@@ -373,6 +378,19 @@ public abstract class SimpleNet<T> implements Serializable {
                     // Use the float value as dictionary key
                     Dictionary dict = featureDictionaries.get(featureNames[i]);
                     int index = dict.getIndex(input[i]); // Float auto-boxed to Float object
+                    
+                    // Check dictionary size and fail-fast if it exceeds the feature's max unique values
+                    // Skip check for LRUDictionary since it handles eviction automatically
+                    if (!features[i].isLRU() && index >= features[i].getMaxUniqueValues()) {
+                        throw new IllegalStateException(String.format(
+                            "Dictionary for feature '%s' has grown to %d entries, exceeding maxUniqueValues=%d. " +
+                            "This indicates unbounded vocabulary growth. Consider: " +
+                            "1) Using Feature.hashedEmbedding() instead for high-cardinality features, " +
+                            "2) Pre-processing data to limit unique values, or " +
+                            "3) Using Feature.embeddingLRU() or Feature.oneHotLRU() for online learning.",
+                            featureNames[i], dict.size(), features[i].getMaxUniqueValues()));
+                    }
+                    
                     modelInput[i] = (float) index;
                     break;
                 default:
@@ -423,6 +441,19 @@ public abstract class SimpleNet<T> implements Serializable {
                 case ONEHOT:
                     Dictionary dict = featureDictionaries.get(featureName);
                     int index = dict.getIndex(value);
+                    
+                    // Check dictionary size and fail-fast if it exceeds the feature's max unique values
+                    // Skip check for LRUDictionary since it handles eviction automatically
+                    if (!features[i].isLRU() && index >= features[i].getMaxUniqueValues()) {
+                        throw new IllegalStateException(String.format(
+                            "Dictionary for feature '%s' has grown to %d entries, exceeding maxUniqueValues=%d. " +
+                            "This indicates unbounded vocabulary growth. Consider: " +
+                            "1) Using Feature.hashedEmbedding() instead for high-cardinality features, " +
+                            "2) Pre-processing data to limit unique values, or " +
+                            "3) Using Feature.embeddingLRU() or Feature.oneHotLRU() for online learning.",
+                            featureName, dict.size(), features[i].getMaxUniqueValues()));
+                    }
+                    
                     modelInput[i] = (float) index;
                     break;
                     

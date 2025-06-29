@@ -8,11 +8,6 @@ import dev.neuronic.net.layers.MixedFeatureInputLayer;
 import dev.neuronic.net.losses.MseLoss;
 import dev.neuronic.net.losses.Loss;
 import dev.neuronic.net.serialization.SerializationConstants;
-import dev.neuronic.net.training.BatchTrainer;
-import dev.neuronic.net.training.TrainingCallback;
-import dev.neuronic.net.training.EarlyStoppingCallback;
-import dev.neuronic.net.training.ModelCheckpointCallback;
-import dev.neuronic.net.training.VisualizationCallback;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;

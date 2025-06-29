@@ -223,6 +223,9 @@ public class NeuralNet implements Serializable {
                         NetMath.scaleMatrixInPlace(weightBufs.get(i), scale);
                         NetMath.elementwiseScaleInPlace(biasBufs.get(i), scale);
                         layers[i].applyGradients(weightBufs.get(i), biasBufs.get(i));
+                    } else if (layers[i].getGradientDimensions() == null) {
+                        // Layer manages its own gradients (e.g., MixedFeatureInputLayer)
+                        layers[i].applyGradients(null, null);
                     }
                 }
             }
@@ -271,10 +274,14 @@ public class NeuralNet implements Serializable {
             NetMath.clipGradientsByNorm(weights, biases, maxNorm);
         }
 
-        for (int i = 0; i < layers.length; i++)
+        for (int i = 0; i < layers.length; i++) {
             if (weightBufs.get(i) != null) {
                 layers[i].applyGradients(weightBufs.get(i), biasBufs.get(i));
+            } else if (layers[i].getGradientDimensions() == null) {
+                // Layer manages its own gradients (e.g., MixedFeatureInputLayer)
+                layers[i].applyGradients(null, null);
             }
+        }
     }
 
     /**

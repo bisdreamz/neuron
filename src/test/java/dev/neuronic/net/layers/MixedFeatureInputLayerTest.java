@@ -7,6 +7,9 @@ import dev.neuronic.net.optimizers.AdamWOptimizer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.*;
+import java.util.Arrays;
+import java.util.concurrent.*;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Tests for mixed feature input layer functionality.
@@ -33,13 +36,38 @@ class MixedFeatureInputLayerTest {
         assertEquals(1000, embedding.getMaxUniqueValues());
         assertEquals(32, embedding.getEmbeddingDimension());
         assertEquals(32, embedding.getOutputDimension());
+        assertFalse(embedding.isLRU());
         
         assertEquals(Feature.Type.ONEHOT, oneHot.getType());
         assertEquals(4, oneHot.getMaxUniqueValues());
         assertEquals(4, oneHot.getOutputDimension());
+        assertFalse(oneHot.isLRU());
         
         assertEquals(Feature.Type.PASSTHROUGH, passthrough.getType());
         assertEquals(1, passthrough.getOutputDimension());
+        assertFalse(passthrough.isLRU());
+    }
+    
+    @Test
+    void testLRUFeatures() {
+        // Test LRU feature factory methods
+        Feature embeddingLRU = Feature.embeddingLRU(500, 16, "user_id");
+        Feature oneHotLRU = Feature.oneHotLRU(20, "device_type");
+        
+        assertEquals(Feature.Type.EMBEDDING, embeddingLRU.getType());
+        assertEquals(500, embeddingLRU.getMaxUniqueValues());
+        assertEquals(16, embeddingLRU.getEmbeddingDimension());
+        assertEquals("user_id", embeddingLRU.getName());
+        assertTrue(embeddingLRU.isLRU());
+        
+        assertEquals(Feature.Type.ONEHOT, oneHotLRU.getType());
+        assertEquals(20, oneHotLRU.getMaxUniqueValues());
+        assertEquals("device_type", oneHotLRU.getName());
+        assertTrue(oneHotLRU.isLRU());
+        
+        // Test toString includes LRU indication
+        assertTrue(embeddingLRU.toString().contains("embeddingLRU"));
+        assertTrue(oneHotLRU.toString().contains("oneHotLRU"));
     }
     
     @Test
@@ -262,6 +290,9 @@ class MixedFeatureInputLayerTest {
         Layer.LayerContext[] stack = {context};
         layer.backward(stack, 0, upstreamGradient);
         
+        // With the gradient accumulation fix, we need to call applyGradients
+        layer.applyGradients(null, null);
+        
         // Check that embedding was updated
         float[] updatedEmbedding = layer.getEmbedding(0, 5);
         boolean wasUpdated = false;
@@ -271,7 +302,7 @@ class MixedFeatureInputLayerTest {
                 break;
             }
         }
-        assertTrue(wasUpdated, "Embedding should be updated after backward pass");
+        assertTrue(wasUpdated, "Embedding should be updated after backward pass and applyGradients");
     }
 
     @Test
@@ -509,5 +540,79 @@ class MixedFeatureInputLayerTest {
         
         Feature f6 = Feature.autoNormalize("age");
         assertTrue(f6.toString().contains("[name=age]"));
+    }
+    
+    @Test
+    void testBufferPoolReuse() {
+        // Test that buffers are properly reused between forward/backward passes
+        Feature[] features = {
+            Feature.embedding(100, 16),
+            Feature.oneHot(4),
+            Feature.passthrough()
+        };
+        
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.HE);
+        
+        // Multiple forward/backward passes
+        for (int i = 0; i < 10; i++) {
+            // Forward
+            float[] input = {(float)(i % 100), (float)(i % 4), i * 0.1f};
+            Layer.LayerContext context = layer.forward(input);
+            
+            // Backward
+            float[] gradient = new float[21]; // 16 + 4 + 1
+            Arrays.fill(gradient, 0.01f);
+            Layer.LayerContext[] stack = {context};
+            layer.backward(stack, 0, gradient);
+        }
+        
+        // Test passes if no memory errors occur
+        // The pooled buffers should be properly acquired and released
+    }
+    
+    @Test
+    void testConcurrentBufferPoolAccess() throws InterruptedException {
+        // Test thread safety of buffer pools
+        Feature[] features = {
+            Feature.embedding(50, 8),
+            Feature.oneHot(3)
+        };
+        
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        
+        int numThreads = 5;
+        int iterations = 100;
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(numThreads);
+        
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        
+        for (int t = 0; t < numThreads; t++) {
+            final int threadId = t;
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    
+                    for (int i = 0; i < iterations; i++) {
+                        float[] input = {(float)((threadId * 10 + i) % 50), (float)(i % 3)};
+                        Layer.LayerContext context = layer.forward(input);
+                        
+                        float[] gradient = new float[11]; // 8 + 3
+                        Arrays.fill(gradient, 0.001f);
+                        Layer.LayerContext[] stack = {context};
+                        layer.backward(stack, 0, gradient);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    fail("Thread " + threadId + " failed: " + e.getMessage());
+                } finally {
+                    endLatch.countDown();
+                }
+            });
+        }
+        
+        startLatch.countDown();
+        assertTrue(endLatch.await(10, TimeUnit.SECONDS));
+        executor.shutdown();
     }
 }

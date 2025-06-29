@@ -16,29 +16,18 @@ public class Dictionary {
     private final ConcurrentHashMap<Object, Integer> valueToIndex = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, Object> indexToValue = new ConcurrentHashMap<>();
     private final AtomicInteger nextIndex = new AtomicInteger(0);
-    private final boolean allowNewValues;
 
     /**
      * Create a dictionary that allows new values to be added automatically.
      */
     public Dictionary() {
-        this(true);
     }
 
     /**
-     * Create a dictionary with configurable behavior for unknown values.
-     *
-     * @param allowNewValues if true, unknown values get new indices; if false, returns -1
-     */
-    public Dictionary(boolean allowNewValues) {
-        this.allowNewValues = allowNewValues;
-    }
-
-    /**
-     * Get the index for a value, creating a new index if value is unknown and allowed.
+     * Get the index for a value, creating a new index if value is unknown.
      *
      * @param value the value to look up
-     * @return index for the value, or -1 if unknown and new values not allowed
+     * @return index for the value
      */
     public int getIndex(Object value) {
         if (value == null)
@@ -47,9 +36,6 @@ public class Dictionary {
         Integer existing = valueToIndex.get(value);
         if (existing != null)
             return existing;
-
-        if (!allowNewValues)
-            return -1; // Unknown value, not allowed to create new
 
         int newIndex = nextIndex.getAndIncrement();
         Integer previousIndex = valueToIndex.putIfAbsent(value, newIndex);
@@ -108,26 +94,12 @@ public class Dictionary {
         nextIndex.set(0);
     }
 
-    /**
-     * Create a frozen copy of this dictionary that doesn't allow new values.
-     * Useful for inference when you want to reject unknown values.
-     */
-    public Dictionary freeze() {
-        Dictionary frozen = new Dictionary(false);
-
-        frozen.valueToIndex.putAll(this.valueToIndex);
-        frozen.indexToValue.putAll(this.indexToValue);
-        frozen.nextIndex.set(this.nextIndex.get());
-
-        return frozen;
-    }
 
     /**
      * Serialize the dictionary to a stream.
      */
     public void writeTo(DataOutputStream out) throws IOException {
         out.writeInt(valueToIndex.size());
-        out.writeBoolean(allowNewValues);
         out.writeInt(nextIndex.get());
 
         for (Map.Entry<Object, Integer> entry : valueToIndex.entrySet()) {
@@ -142,10 +114,9 @@ public class Dictionary {
      */
     public static Dictionary readFrom(DataInputStream in) throws IOException {
         int size = in.readInt();
-        boolean allowNewValues = in.readBoolean();
         int nextIndex = in.readInt();
 
-        Dictionary dict = new Dictionary(allowNewValues);
+        Dictionary dict = new Dictionary();
         dict.nextIndex.set(nextIndex);
 
         for (int i = 0; i < size; i++) {
@@ -177,7 +148,7 @@ public class Dictionary {
      * Get the estimated serialized size of this dictionary.
      */
     public int getSerializedSize() {
-        int size = 12; // size + allowNewValues + nextIndex
+        int size = 8; // size + nextIndex
         for (Object key : valueToIndex.keySet()) {
             size += 2 + key.toString().getBytes().length; // UTF string
             size += 4; // integer value
@@ -187,7 +158,7 @@ public class Dictionary {
 
     @Override
     public String toString() {
-        return String.format("Dictionary[size=%d, allowNewValues=%s, nextIndex=%d]",
-                size(), allowNewValues, getNextIndex());
+        return String.format("Dictionary[size=%d, nextIndex=%d]",
+                size(), getNextIndex());
     }
 }

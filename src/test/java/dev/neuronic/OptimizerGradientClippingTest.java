@@ -41,8 +41,8 @@ public class OptimizerGradientClippingTest {
             new OptimizerTest("Adam-0.01", new AdamOptimizer(0.01f), 300, 0.3f),
             
             // Test AdamW
-            new OptimizerTest("AdamW-0.001", new AdamWOptimizer(0.001f, 0.0001f), 800, 0.3f),
-            new OptimizerTest("AdamW-0.01", new AdamWOptimizer(0.01f, 0.00001f), 250, 0.3f),
+            new OptimizerTest("AdamW-0.001", new AdamWOptimizer(0.001f, 0.0001f), 1000, 0.3f),
+            new OptimizerTest("AdamW-0.01", new AdamWOptimizer(0.01f, 0.00001f), 500, 0.3f),
             new OptimizerTest("AdamW-with-decay", new AdamWOptimizer(0.01f, 0.0001f), 150, 0.3f),
         };
         

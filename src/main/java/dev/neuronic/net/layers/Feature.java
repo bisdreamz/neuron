@@ -25,22 +25,28 @@ public class Feature {
     private final float minBound;          // For SCALE_BOUNDED: user-specified minimum
     private final float maxBound;          // For SCALE_BOUNDED: user-specified maximum
     private final String name;             // Optional feature name for meaningful identification
+    private final boolean useLRU;          // Whether to use LRU eviction for dictionary
     
     private Feature(Type type, int maxUniqueValues, int embeddingDimension) {
-        this(type, maxUniqueValues, embeddingDimension, 0.0f, 0.0f, null);
+        this(type, maxUniqueValues, embeddingDimension, 0.0f, 0.0f, null, false);
     }
     
     private Feature(Type type, int maxUniqueValues, int embeddingDimension, float minBound, float maxBound) {
-        this(type, maxUniqueValues, embeddingDimension, minBound, maxBound, null);
+        this(type, maxUniqueValues, embeddingDimension, minBound, maxBound, null, false);
     }
     
     private Feature(Type type, int maxUniqueValues, int embeddingDimension, float minBound, float maxBound, String name) {
+        this(type, maxUniqueValues, embeddingDimension, minBound, maxBound, name, false);
+    }
+    
+    private Feature(Type type, int maxUniqueValues, int embeddingDimension, float minBound, float maxBound, String name, boolean useLRU) {
         this.type = type;
         this.maxUniqueValues = maxUniqueValues;
         this.embeddingDimension = embeddingDimension;
         this.minBound = minBound;
         this.maxBound = maxBound;
         this.name = name;
+        this.useLRU = useLRU;
     }
     
     /**
@@ -107,6 +113,46 @@ public class Feature {
     }
     
     /**
+     * High-cardinality feature with LRU eviction for online learning.
+     * 
+     * <p><b>When to use LRU embeddings:</b>
+     * <ul>
+     *   <li>Online learning with evolving vocabulary</li>
+     *   <li>Memory-constrained environments</li>
+     *   <li>Features where recent values matter more than old ones</li>
+     *   <li>Long-tail distributions where rare values can be forgotten</li>
+     * </ul>
+     * 
+     * <p>When the dictionary reaches maxUniqueValues, the least recently used
+     * entries are evicted to make room for new ones. This prevents unbounded
+     * memory growth while adapting to changing data distributions.
+     * 
+     * <p><b>Example:</b>
+     * <pre>{@code
+     * // User IDs in online learning - keep 100k most recent users
+     * Feature.embeddingLRU(100000, 64, "user_id")
+     * 
+     * // Product SKUs with seasonal changes
+     * Feature.embeddingLRU(50000, 32, "product_sku")
+     * }</pre>
+     * 
+     * @param maxUniqueValues maximum entries before LRU eviction starts
+     * @param embeddingDimension size of the dense vector representation
+     * @param name meaningful name for this feature
+     * @return feature configuration for LRU embedding encoding
+     */
+    public static Feature embeddingLRU(int maxUniqueValues, int embeddingDimension, String name) {
+        if (maxUniqueValues <= 0)
+            throw new IllegalArgumentException("maxUniqueValues must be positive: " + maxUniqueValues);
+        if (embeddingDimension <= 0)
+            throw new IllegalArgumentException("embeddingDimension must be positive: " + embeddingDimension);
+        if (name == null || name.trim().isEmpty())
+            throw new IllegalArgumentException("Feature name cannot be null or empty");
+            
+        return new Feature(Type.EMBEDDING, maxUniqueValues, embeddingDimension, 0.0f, 0.0f, name.trim(), true);
+    }
+    
+    /**
      * Low-cardinality feature encoded as one-hot vectors.
      * 
      * <p><b>When to use:</b> Features with few unique values where each value is 
@@ -160,6 +206,38 @@ public class Feature {
             throw new IllegalArgumentException("Feature name cannot be null or empty");
             
         return new Feature(Type.ONEHOT, numberOfCategories, 0, 0.0f, 0.0f, name.trim());
+    }
+    
+    /**
+     * Low-cardinality feature with LRU eviction for evolving categories.
+     * 
+     * <p><b>When to use LRU one-hot:</b>
+     * <ul>
+     *   <li>Categories that change over time (e.g., trending hashtags)</li>
+     *   <li>Features with occasional new values in production</li>
+     *   <li>When you want to cap memory usage for categorical features</li>
+     * </ul>
+     * 
+     * <p><b>Example:</b>
+     * <pre>{@code
+     * // Device OS versions - keep 20 most recent
+     * Feature.oneHotLRU(20, "os_version")
+     * 
+     * // Error codes that evolve with new releases
+     * Feature.oneHotLRU(100, "error_code")
+     * }</pre>
+     * 
+     * @param numberOfCategories maximum categories before LRU eviction
+     * @param name meaningful name for this feature
+     * @return feature configuration for LRU one-hot encoding
+     */
+    public static Feature oneHotLRU(int numberOfCategories, String name) {
+        if (numberOfCategories <= 0)
+            throw new IllegalArgumentException("numberOfCategories must be positive: " + numberOfCategories);
+        if (name == null || name.trim().isEmpty())
+            throw new IllegalArgumentException("Feature name cannot be null or empty");
+            
+        return new Feature(Type.ONEHOT, numberOfCategories, 0, 0.0f, 0.0f, name.trim(), true);
     }
     
     /**
@@ -420,13 +498,14 @@ public class Feature {
     }
     
     
-    // Package-private getters for layer implementation
+    // Getters for layer implementation and validation
     public Type getType() { return type; }
-    int getMaxUniqueValues() { return maxUniqueValues; }
+    public int getMaxUniqueValues() { return maxUniqueValues; }
     int getEmbeddingDimension() { return embeddingDimension; }
     float getMinBound() { return minBound; }
     float getMaxBound() { return maxBound; }
     public String getName() { return name; }
+    public boolean isLRU() { return useLRU; }
     
     /**
      * Calculate the output dimension for this feature.
@@ -447,11 +526,12 @@ public class Feature {
     @Override
     public String toString() {
         String base = switch (type) {
-            case EMBEDDING -> String.format("Feature.embedding(maxUniqueValues=%d, embeddingDimension=%d)", 
-                                           maxUniqueValues, embeddingDimension);
+            case EMBEDDING -> String.format("Feature.embedding%s(maxUniqueValues=%d, embeddingDimension=%d)", 
+                                           useLRU ? "LRU" : "", maxUniqueValues, embeddingDimension);
             case HASHED_EMBEDDING -> String.format("Feature.hashedEmbedding(hashBuckets=%d, embeddingDimension=%d)", 
                                            maxUniqueValues, embeddingDimension);
-            case ONEHOT -> String.format("Feature.oneHot(numberOfCategories=%d)", maxUniqueValues);
+            case ONEHOT -> String.format("Feature.oneHot%s(numberOfCategories=%d)", 
+                                        useLRU ? "LRU" : "", maxUniqueValues);
             case PASSTHROUGH -> "Feature.passthrough()";
             case AUTO_NORMALIZE -> "Feature.autoNormalize()";
             case SCALE_BOUNDED -> String.format("Feature.autoScale(%.3f, %.3f)", minBound, maxBound);
