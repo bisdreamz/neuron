@@ -167,6 +167,15 @@ public interface Layer {
     default Optimizer getOptimizer() {
         return null;
     }
+    
+    /**
+     * Get the weights for this layer, if any.
+     * Returns null for layers without weights.
+     * @return flattened weights array or null
+     */
+    default float[] getWeights() {
+        return null;
+    }
 
     /**
      * Specification for creating a layer. The actual layer instance

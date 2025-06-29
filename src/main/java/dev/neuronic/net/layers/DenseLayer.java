@@ -704,5 +704,39 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         return SerializationConstants.TYPE_DENSE_LAYER;
     }
     
+    /**
+     * Get the weights array for testing purposes.
+     * Returns a flattened view of the weights in row-major order.
+     */
+    public float[] getWeights() {
+        float[] flattened = new float[inputs * neurons];
+        int idx = 0;
+        for (int i = 0; i < inputs; i++) {
+            for (int j = 0; j < neurons; j++) {
+                flattened[idx++] = weights[i][j];
+            }
+        }
+        return flattened;
+    }
+    
+    /**
+     * Set a specific weight for testing purposes.
+     * @param flatIndex the flattened index
+     * @param value the weight value
+     */
+    public void setWeight(int flatIndex, float value) {
+        int i = flatIndex / neurons;
+        int j = flatIndex % neurons;
+        weights[i][j] = value;
+    }
+    
+    /**
+     * Set a specific bias for testing purposes.
+     * @param index the bias index
+     * @param value the bias value
+     */
+    public void setBias(int index, float value) {
+        biases[index] = value;
+    }
 
 }
