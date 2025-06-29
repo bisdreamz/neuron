@@ -2,6 +2,7 @@ package dev.neuronic.net.outputs;
 
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.BaseLayerSpec;
+import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.serialization.Serializable;
@@ -32,22 +33,16 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable {
     private final float[][] weights;
     private final float[] biases;
     private final int inputs;
-    private final ThreadLocal<float[]> logitBuffers;
-    private final ThreadLocal<float[]> probabilityBuffers;
-    private final ThreadLocal<float[]> neuronBuffers;
-    private final ThreadLocal<float[]> inputBuffers;
-    private final ThreadLocal<float[][]> weightGradientBuffers;
+    // Instance buffer pools for different array sizes
+    private final PooledFloatArray inputBufferPool;       // For input-sized arrays
     
     public SigmoidBinaryCrossEntropyOutput(Optimizer optimizer, int inputs) {
         this.optimizer = optimizer;
         this.weights = new float[inputs][1]; // Single output
         this.biases = new float[1];
         this.inputs = inputs;
-        this.logitBuffers = ThreadLocal.withInitial(() -> new float[1]);
-        this.probabilityBuffers = ThreadLocal.withInitial(() -> new float[1]);
-        this.neuronBuffers = ThreadLocal.withInitial(() -> new float[1]);
-        this.inputBuffers = ThreadLocal.withInitial(() -> new float[inputs]);
-        this.weightGradientBuffers = ThreadLocal.withInitial(() -> new float[inputs][1]);
+        // Initialize buffer pools
+        this.inputBufferPool = new PooledFloatArray(inputs);
         
         // Xavier initialization for sigmoid
         NetMath.weightInitXavier(weights, inputs, 1);
@@ -86,27 +81,36 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable {
     public float[] backward(LayerContext[] stack, int stackIndex, float[] targets) {
         LayerContext context = stack[stackIndex];
         
-        // Binary cross-entropy + sigmoid gradient: prediction - target
-        float probability = context.outputs()[0];
-        float target = targets[0];
-        float gradient = probability - target;
+        float[] downstreamGradient = inputBufferPool.getBuffer();
         
-        // Compute weight gradients
-        float[][] weightGradients = weightGradientBuffers.get();
-        for (int i = 0; i < inputs; i++) {
-            weightGradients[i][0] = context.inputs()[i] * gradient;
+        try {
+            // Binary cross-entropy + sigmoid gradient: prediction - target
+            float probability = context.outputs()[0];
+            float target = targets[0];
+            float gradient = probability - target;
+            
+            // Compute weight gradients
+            float[][] weightGradients = new float[inputs][1];
+            for (int i = 0; i < inputs; i++) {
+                weightGradients[i][0] = context.inputs()[i] * gradient;
+            }
+            
+            // Update weights and biases
+            optimizer.optimize(weights, biases, weightGradients, new float[]{gradient});
+            
+            // Compute downstream gradient
+            for (int i = 0; i < inputs; i++) {
+                downstreamGradient[i] = gradient * weights[i][0];
+            }
+            
+            // Return a fresh copy
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            inputBufferPool.releaseBuffer(downstreamGradient);
         }
-        
-        // Update weights and biases
-        optimizer.optimize(weights, biases, weightGradients, new float[]{gradient});
-        
-        // Compute downstream gradient
-        float[] downstreamGradient = inputBuffers.get();
-        for (int i = 0; i < inputs; i++) {
-            downstreamGradient[i] = gradient * weights[i][0];
-        }
-        
-        return downstreamGradient;
     }
     
     @Override

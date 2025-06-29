@@ -475,6 +475,103 @@ public class SimpleNetInt extends SimpleNet<Integer> {
     }
     
     /**
+     * Train the classifier with a mini-batch using Map-based inputs (type-safe).
+     * 
+     * <p><b>Example usage:</b>
+     * <pre>{@code
+     * List<Map<String, Object>> batchInputs = new ArrayList<>();
+     * List<Integer> batchLabels = new ArrayList<>();
+     * 
+     * // Accumulate batch
+     * for (Example ex : examples) {
+     *     batchInputs.add(ex.getFeatures());
+     *     batchLabels.add(ex.getLabel());
+     * }
+     * 
+     * // Train as a batch
+     * classifier.trainBatchMaps(batchInputs, batchLabels);
+     * }</pre>
+     * 
+     * @param inputs list of Map inputs with feature names to values
+     * @param labels list of integer labels corresponding to inputs
+     */
+    public void trainBatchMaps(java.util.List<Map<String, Object>> inputs, java.util.List<Integer> labels) {
+        if (inputs.size() != labels.size()) {
+            throw new IllegalArgumentException("Input and label lists must have the same size");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        if (!usesFeatureMapping) {
+            throw new IllegalArgumentException(
+                "This model does not use mixed features. Use trainBatchArrays() instead.");
+        }
+        
+        // Convert to arrays for batch training
+        float[][] batchInputs = new float[inputs.size()][];
+        float[][] batchTargets = new float[labels.size()][];
+        
+        for (int i = 0; i < inputs.size(); i++) {
+            batchInputs[i] = convertFromMap(inputs.get(i));
+            
+            // Add label to dictionary if not seen before
+            int classIndex = labelDictionary.getIndex(labels.get(i));
+            batchTargets[i] = createTargetVector(classIndex);
+        }
+        
+        // Use underlying network's batch training
+        underlyingNet.trainBatch(batchInputs, batchTargets);
+    }
+    
+    /**
+     * Train the classifier with a mini-batch using float array inputs (type-safe).
+     * 
+     * <p><b>Example usage:</b>
+     * <pre>{@code
+     * List<float[]> batchInputs = new ArrayList<>();
+     * List<Integer> batchLabels = new ArrayList<>();
+     * 
+     * // Accumulate batch
+     * for (Example ex : examples) {
+     *     batchInputs.add(ex.getPixelData());
+     *     batchLabels.add(ex.getDigit());
+     * }
+     * 
+     * // Train as a batch
+     * classifier.trainBatchArrays(batchInputs, batchLabels);
+     * }</pre>
+     * 
+     * @param inputs list of float array inputs
+     * @param labels list of integer labels corresponding to inputs
+     */
+    public void trainBatchArrays(java.util.List<float[]> inputs, java.util.List<Integer> labels) {
+        if (inputs.size() != labels.size()) {
+            throw new IllegalArgumentException("Input and label lists must have the same size");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        // Convert to arrays for batch training
+        float[][] batchInputs = new float[inputs.size()][];
+        float[][] batchTargets = new float[labels.size()][];
+        
+        for (int i = 0; i < inputs.size(); i++) {
+            batchInputs[i] = convertFromFloatArray(inputs.get(i));
+            
+            // Add label to dictionary if not seen before
+            int classIndex = labelDictionary.getIndex(labels.get(i));
+            batchTargets[i] = createTargetVector(classIndex);
+        }
+        
+        // Use underlying network's batch training
+        underlyingNet.trainBatch(batchInputs, batchTargets);
+    }
+    
+    /**
      * Predict classes for a batch of inputs.
      * 
      * @param inputs list of input data

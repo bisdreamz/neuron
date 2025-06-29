@@ -327,6 +327,111 @@ public class SimpleNetString extends SimpleNet<String> {
             "This model does not support sequence inputs. Use trainBulkMaps or trainBulkArrays instead.");
     }
     
+    // ===============================
+    // BATCH TRAINING METHODS
+    // ===============================
+    
+    /**
+     * Train the classifier with a mini-batch using Map-based inputs (type-safe).
+     * 
+     * <p><b>Example usage:</b>
+     * <pre>{@code
+     * List<Map<String, Object>> batchInputs = new ArrayList<>();
+     * List<String> batchLabels = new ArrayList<>();
+     * 
+     * // Accumulate batch
+     * for (Review review : reviews) {
+     *     batchInputs.add(Map.of("text", review.getText(), "length", review.getLength()));
+     *     batchLabels.add(review.getSentiment());
+     * }
+     * 
+     * // Train as a batch
+     * classifier.trainBatchMaps(batchInputs, batchLabels);
+     * }</pre>
+     * 
+     * @param inputs list of Map inputs with feature names to values
+     * @param labels list of string labels corresponding to inputs
+     */
+    public void trainBatchMaps(List<Map<String, Object>> inputs, List<String> labels) {
+        if (inputs.size() != labels.size()) {
+            throw new IllegalArgumentException(
+                "Inputs and labels must have the same size. Got " + 
+                inputs.size() + " inputs and " + labels.size() + " labels.");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        if (!usesFeatureMapping) {
+            throw new IllegalArgumentException(
+                "This model does not use mixed features. Use trainBatchArrays() instead.");
+        }
+        
+        // Convert to arrays for batch training
+        float[][] batchInputs = new float[inputs.size()][];
+        float[][] batchTargets = new float[labels.size()][];
+        
+        for (int i = 0; i < inputs.size(); i++) {
+            batchInputs[i] = convertFromMap(inputs.get(i));
+            
+            // Add label to dictionary if not seen before
+            int classIndex = labelDictionary.getIndex(labels.get(i));
+            batchTargets[i] = createTargetVector(classIndex);
+        }
+        
+        // Use underlying network's batch training
+        underlyingNet.trainBatch(batchInputs, batchTargets);
+    }
+    
+    /**
+     * Train the classifier with a mini-batch using float array inputs (type-safe).
+     * 
+     * <p><b>Example usage:</b>
+     * <pre>{@code
+     * List<float[]> batchInputs = new ArrayList<>();
+     * List<String> batchLabels = new ArrayList<>();
+     * 
+     * // Accumulate batch
+     * for (Example ex : examples) {
+     *     batchInputs.add(ex.getFeatureVector());
+     *     batchLabels.add(ex.getCategory());
+     * }
+     * 
+     * // Train as a batch
+     * classifier.trainBatchArrays(batchInputs, batchLabels);
+     * }</pre>
+     * 
+     * @param inputs list of float array inputs
+     * @param labels list of string labels corresponding to inputs
+     */
+    public void trainBatchArrays(List<float[]> inputs, List<String> labels) {
+        if (inputs.size() != labels.size()) {
+            throw new IllegalArgumentException(
+                "Inputs and labels must have the same size. Got " + 
+                inputs.size() + " inputs and " + labels.size() + " labels.");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        // Convert to arrays for batch training
+        float[][] batchInputs = new float[inputs.size()][];
+        float[][] batchTargets = new float[labels.size()][];
+        
+        for (int i = 0; i < inputs.size(); i++) {
+            batchInputs[i] = convertFromFloatArray(inputs.get(i));
+            
+            // Add label to dictionary if not seen before
+            int classIndex = labelDictionary.getIndex(labels.get(i));
+            batchTargets[i] = createTargetVector(classIndex);
+        }
+        
+        // Use underlying network's batch training
+        underlyingNet.trainBatch(batchInputs, batchTargets);
+    }
+    
     /**
      * Special bulk training for InputSequenceEmbeddingLayer that handles string sequences properly.
      */

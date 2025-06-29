@@ -296,6 +296,125 @@ public class SimpleNetFloat extends SimpleNet<Float> {
         return 1.28f;  // 80% confidence
     }
     
+    // ===============================
+    // BATCH TRAINING METHOD
+    // ===============================
+    
+    /**
+     * Train the network on a batch of samples using Map-based inputs.
+     * This provides convenient batch training without requiring a full training configuration.
+     * 
+     * <p>Benefits over calling train() multiple times:
+     * <ul>
+     *   <li>Proper gradient accumulation across the batch</li>
+     *   <li>Single weight update after processing all samples</li>
+     *   <li>More stable learning and convergence</li>
+     *   <li>Better performance (fewer weight updates)</li>
+     * </ul>
+     * 
+     * <p>Example usage:
+     * <pre>{@code
+     * List<Map<String, Object>> batchInputs = new ArrayList<>();
+     * List<Float> batchTargets = new ArrayList<>();
+     * 
+     * // Accumulate batch
+     * for (Example ex : examples) {
+     *     batchInputs.add(ex.getFeatures());
+     *     batchTargets.add(ex.getTarget());
+     * }
+     * 
+     * // Train as a batch
+     * model.trainBatchMaps(batchInputs, batchTargets);
+     * }</pre>
+     * 
+     * @param inputs list of Map inputs with feature names to values
+     * @param targets list of target float values
+     * @throws IllegalArgumentException if inputs and targets have different sizes
+     */
+    public void trainBatchMaps(List<Map<String, Object>> inputs, List<Float> targets) {
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException(
+                "Inputs and targets must have the same size. Got " + 
+                inputs.size() + " inputs and " + targets.size() + " targets.");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        if (!usesFeatureMapping) {
+            throw new IllegalArgumentException(
+                "This model does not use mixed features. Use trainBatchArrays() instead.");
+        }
+        
+        // Convert inputs to float arrays
+        float[][] encodedInputs = new float[inputs.size()][];
+        for (int i = 0; i < inputs.size(); i++) {
+            encodedInputs[i] = convertFromMap(inputs.get(i));
+        }
+        
+        // Encode targets
+        float[][] encodedTargets = encodeTargets(targets);
+        
+        // Use the underlying neural network's batch training
+        underlyingNet.trainBatch(encodedInputs, encodedTargets);
+    }
+    
+    /**
+     * Train the network on a batch of samples using float array inputs.
+     * This provides convenient batch training without requiring a full training configuration.
+     * 
+     * <p>Benefits over calling train() multiple times:
+     * <ul>
+     *   <li>Proper gradient accumulation across the batch</li>
+     *   <li>Single weight update after processing all samples</li>
+     *   <li>More stable learning and convergence</li>
+     *   <li>Better performance (fewer weight updates)</li>
+     * </ul>
+     * 
+     * <p>Example usage:
+     * <pre>{@code
+     * List<float[]> batchInputs = new ArrayList<>();
+     * List<Float> batchTargets = new ArrayList<>();
+     * 
+     * // Accumulate batch
+     * for (Example ex : examples) {
+     *     batchInputs.add(ex.getFeatureArray());
+     *     batchTargets.add(ex.getTarget());
+     * }
+     * 
+     * // Train as a batch
+     * model.trainBatchArrays(batchInputs, batchTargets);
+     * }</pre>
+     * 
+     * @param inputs list of float array inputs
+     * @param targets list of target float values
+     * @throws IllegalArgumentException if inputs and targets have different sizes
+     */
+    public void trainBatchArrays(List<float[]> inputs, List<Float> targets) {
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException(
+                "Inputs and targets must have the same size. Got " + 
+                inputs.size() + " inputs and " + targets.size() + " targets.");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        // Convert inputs to float arrays
+        float[][] encodedInputs = new float[inputs.size()][];
+        for (int i = 0; i < inputs.size(); i++) {
+            encodedInputs[i] = convertFromFloatArray(inputs.get(i));
+        }
+        
+        // Encode targets
+        float[][] encodedTargets = encodeTargets(targets);
+        
+        // Use the underlying neural network's batch training
+        underlyingNet.trainBatch(encodedInputs, encodedTargets);
+    }
+    
     
     // trainBulk is now inherited from base class with common implementation
     

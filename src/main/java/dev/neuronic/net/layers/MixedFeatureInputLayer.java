@@ -1,6 +1,7 @@
 package dev.neuronic.net.layers;
 
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.AdamOptimizer;
@@ -62,7 +63,9 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     private final Feature[] features;
     private final float[][][] embeddings; // [featureIndex][valueIndex][embeddingDim] - only for embedding features
     private final int totalOutputDimension;
-    private final ThreadLocal<float[]> outputBuffers;
+    // Instance buffer pool for output dimension arrays
+    private final PooledFloatArray outputBufferPool;
+    // Note: embeddingGradientBuffers needs to remain ThreadLocal as it's accumulated state
     private final ThreadLocal<float[][][]> embeddingGradientBuffers;
     
     // Scaling statistics for AUTO_NORMALIZE features
@@ -128,7 +131,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         // Initialize embedding tables only for embedding features
         this.embeddings = new float[features.length][][];
         for (int i = 0; i < features.length; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING) {
+            if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
                 int maxValues = features[i].getMaxUniqueValues();
                 int embeddingDim = features[i].getEmbeddingDimension();
                 this.embeddings[i] = new float[maxValues][embeddingDim];
@@ -153,12 +156,13 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
             featureCount[i] = 0;
         }
         
-        // ThreadLocal buffers for output and gradients
-        this.outputBuffers = ThreadLocal.withInitial(() -> new float[totalOutputDimension]);
+        // Initialize buffer pool for outputs
+        this.outputBufferPool = new PooledFloatArray(totalOutputDimension);
+        // ThreadLocal for gradient accumulation (required for thread-specific state)
         this.embeddingGradientBuffers = ThreadLocal.withInitial(() -> {
             float[][][] buffers = new float[features.length][][];
             for (int i = 0; i < features.length; i++) {
-                if (features[i].getType() == Feature.Type.EMBEDDING) {
+                if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
                     int maxValues = features[i].getMaxUniqueValues();
                     int embeddingDim = features[i].getEmbeddingDimension();
                     buffers[i] = new float[maxValues][embeddingDim];
@@ -189,10 +193,11 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                 "Expected input format: [feature0_value, feature1_value, ..., feature%d_value]", 
                 input.length, features.length, features.length - 1));
         
-        float[] output = outputBuffers.get();
+        float[] output = outputBufferPool.getBuffer();
         int outputPosition = 0;
         
-        // Process each feature according to its configuration
+        try {
+            // Process each feature according to its configuration
         for (int featureIndex = 0; featureIndex < features.length; featureIndex++) {
             Feature feature = features[featureIndex];
             int inputValue = (int) input[featureIndex];
@@ -259,13 +264,42 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     output[outputPosition] = normalizedValue;
                     outputPosition++;
                 }
+                case HASHED_EMBEDDING -> {
+                    // Hashed embedding feature: use multiple hash functions
+                    // Input is expected to be a hash code (integer representation of string)
+                    int hashCode = (int) input[featureIndex];
+                    int embeddingDim = feature.getEmbeddingDimension();
+                    int hashBuckets = feature.getMaxUniqueValues();
+                    
+                    // Compute 3 hash positions
+                    int[] positions = computeHashPositions(hashCode, hashBuckets);
+                    
+                    // Average embeddings from all positions
+                    for (int d = 0; d < embeddingDim; d++)
+                        output[outputPosition + d] = 0.0f;
+                    
+                    for (int pos : positions) {
+                        for (int d = 0; d < embeddingDim; d++)
+                            output[outputPosition + d] += embeddings[featureIndex][pos][d];
+                    }
+                    
+                    // Scale by 1/3 to get average
+                    float scale = 1.0f / 3.0f;
+                    for (int d = 0; d < embeddingDim; d++)
+                        output[outputPosition + d] *= scale;
+                    
+                    outputPosition += embeddingDim;
+                }
             }
+            }
+            
+            // Create result array with exactly the right size
+            float[] result = new float[totalOutputDimension];
+            System.arraycopy(output, 0, result, 0, totalOutputDimension);
+            return new LayerContext(input, null, result);
+        } finally {
+            outputBufferPool.releaseBuffer(output);
         }
-        
-        // Create result array with exactly the right size
-        float[] result = new float[totalOutputDimension];
-        System.arraycopy(output, 0, result, 0, totalOutputDimension);
-        return new LayerContext(input, null, result);
     }
     
     @Override
@@ -288,7 +322,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         
         // Clear gradients for embedding features
         for (int i = 0; i < features.length; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING) {
+            if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
                 int maxValues = features[i].getMaxUniqueValues();
                 int embeddingDim = features[i].getEmbeddingDimension();
                 for (int j = 0; j < maxValues; j++) {
@@ -320,16 +354,34 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     int numCategories = feature.getMaxUniqueValues();
                     gradientPosition += numCategories;
                 }
-                case PASSTHROUGH -> {
-                    // Passthrough features don't have learnable parameters, skip gradients
+                case PASSTHROUGH, AUTO_NORMALIZE, SCALE_BOUNDED -> {
+                    // These features don't have learnable parameters, skip gradients
                     gradientPosition++;
+                }
+                case HASHED_EMBEDDING -> {
+                    // Accumulate gradients for hashed embeddings
+                    int hashCode = (int) inputFloats[featureIndex];
+                    int embeddingDim = feature.getEmbeddingDimension();
+                    int hashBuckets = feature.getMaxUniqueValues();
+                    
+                    // Get hash positions
+                    int[] positions = computeHashPositions(hashCode, hashBuckets);
+                    
+                    // Accumulate gradients for each position (scaled by 1/3)
+                    float scale = 1.0f / 3.0f;
+                    for (int pos : positions) {
+                        for (int j = 0; j < embeddingDim; j++) {
+                            embeddingGradients[featureIndex][pos][j] += upstreamGradient[gradientPosition + j] * scale;
+                        }
+                    }
+                    gradientPosition += embeddingDim;
                 }
             }
         }
         
         // Update embeddings using optimizer
         for (int i = 0; i < features.length; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING) {
+            if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
                 optimizer.optimize(embeddings[i], new float[0], embeddingGradients[i], new float[0]);
             }
         }
@@ -560,6 +612,36 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         }
         
         return (value - mean) / std;
+    }
+    
+    /**
+     * Compute hash positions using multiple hash functions for HASHED_EMBEDDING.
+     * Uses MurmurHash3-inspired mixing for better distribution.
+     */
+    private int[] computeHashPositions(int hashCode, int hashBuckets) {
+        // MurmurHash3 prime seeds for better distribution
+        final int[] HASH_SEEDS = {
+            0x1b873593,  // MurmurHash3 constant c1
+            0xcc9e2d51,  // MurmurHash3 constant c2
+            0x85ebca6b   // MurmurHash3 mix constant
+        };
+        
+        int[] positions = new int[3];
+        
+        for (int i = 0; i < 3; i++) {
+            // MurmurHash3-inspired mixing
+            int h = hashCode;
+            h ^= h >>> 16;
+            h *= HASH_SEEDS[i];
+            h ^= h >>> 13;
+            h *= 0x5bd1e995;
+            h ^= h >>> 15;
+            
+            // Map to bucket (ensure positive)
+            positions[i] = Math.abs(h) % hashBuckets;
+        }
+        
+        return positions;
     }
     
     // ===============================

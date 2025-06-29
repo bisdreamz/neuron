@@ -3,6 +3,7 @@ package dev.neuronic.net.outputs;
 import dev.neuronic.net.layers.BaseLayerSpec;
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.GradientAccumulator;
+import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.losses.HuberLoss;
@@ -44,10 +45,10 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
     private final int inputs;
     private final float delta;
     private final HuberLoss huberLoss;
-    private final ThreadLocal<float[]> outputBuffers;
-    private final ThreadLocal<float[]> gradientBuffers;
-    private final ThreadLocal<float[]> inputBuffers;
-    private final ThreadLocal<float[][]> weightGradientBuffers;
+    // Instance buffer pools for different array sizes
+    private final PooledFloatArray outputBufferPool;
+    private final PooledFloatArray gradientBufferPool;
+    private final PooledFloatArray inputBufferPool;
     
     // Gradient accumulation state
     private final ThreadLocal<float[][]> accumulatedWeightGradients;
@@ -62,10 +63,10 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
         this.inputs = inputs;
         this.delta = delta;
         this.huberLoss = HuberLoss.create(delta);
-        this.outputBuffers = ThreadLocal.withInitial(() -> new float[outputs]);
-        this.gradientBuffers = ThreadLocal.withInitial(() -> new float[outputs]);
-        this.inputBuffers = ThreadLocal.withInitial(() -> new float[inputs]);
-        this.weightGradientBuffers = ThreadLocal.withInitial(() -> new float[inputs][outputs]);
+        // Initialize buffer pools
+        this.outputBufferPool = new PooledFloatArray(outputs);
+        this.gradientBufferPool = new PooledFloatArray(outputs);
+        this.inputBufferPool = new PooledFloatArray(inputs);
         
         // Initialize gradient accumulation state
         this.accumulatedWeightGradients = ThreadLocal.withInitial(() -> new float[inputs][outputs]);
@@ -104,22 +105,32 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
     public float[] backward(LayerContext[] stack, int stackIndex, float[] targets) {
         LayerContext context = stack[stackIndex];
         
-        // Huber loss gradient
-        float[] gradients = gradientBuffers.get();
-        NetMath.lossDerivativesHuber(context.outputs(), targets, delta, gradients);
+        float[] gradients = gradientBufferPool.getBuffer();
+        float[] downstreamGradient = inputBufferPool.getBuffer();
         
-        // Compute weight gradients using NetMath
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
-        
-        // Update weights and biases
-        optimizer.optimize(weights, biases, weightGradients, gradients);
-        
-        // Compute downstream gradient using NetMath
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
-        
-        return downstreamGradient;
+        try {
+            // Huber loss gradient
+            NetMath.lossDerivativesHuber(context.outputs(), targets, delta, gradients);
+            
+            // Compute weight gradients using NetMath
+            float[][] weightGradients = new float[inputs][outputs];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
+            
+            // Update weights and biases
+            optimizer.optimize(weights, biases, weightGradients, gradients);
+            
+            // Compute downstream gradient using NetMath
+            NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
+            
+            // Return a fresh copy
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            gradientBufferPool.releaseBuffer(gradients);
+            inputBufferPool.releaseBuffer(downstreamGradient);
+        }
     }
     
     @Override
@@ -144,30 +155,43 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
     public float[] backwardAccumulate(LayerContext[] stack, int stackIndex, float[] targets) {
         LayerContext context = stack[stackIndex];
         
-        // Huber loss gradient
-        float[] gradients = gradientBuffers.get();
-        NetMath.lossDerivativesHuber(context.outputs(), targets, delta, gradients);
+        float[] gradients = gradientBufferPool.getBuffer();
         
-        // Compute weight gradients using NetMath
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
-        
-        // Accumulate gradients
-        float[][] accWeightGrads = accumulatedWeightGradients.get();
-        float[] accBiasGrads = accumulatedBiasGradients.get();
-        
-        // Add weight gradients to accumulated
-        for (int i = 0; i < inputs; i++)
-            NetMath.elementwiseAdd(accWeightGrads[i], weightGradients[i], accWeightGrads[i]);
-        
-        // Add bias gradients to accumulated
-        NetMath.elementwiseAdd(accBiasGrads, gradients, accBiasGrads);
-        
-        // Compute downstream gradient using NetMath
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
-        
-        return downstreamGradient;
+        try {
+            // Huber loss gradient
+            NetMath.lossDerivativesHuber(context.outputs(), targets, delta, gradients);
+            
+            // Compute weight gradients using NetMath
+            float[][] weightGradients = new float[inputs][outputs];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
+            
+            // Accumulate gradients
+            float[][] accWeightGrads = accumulatedWeightGradients.get();
+            float[] accBiasGrads = accumulatedBiasGradients.get();
+            
+            // Add weight gradients to accumulated
+            for (int i = 0; i < inputs; i++)
+                NetMath.elementwiseAdd(accWeightGrads[i], weightGradients[i], accWeightGrads[i]);
+            
+            // Add bias gradients to accumulated
+            NetMath.elementwiseAdd(accBiasGrads, gradients, accBiasGrads);
+            
+            // Compute downstream gradient using NetMath
+            float[] downstreamGradient = inputBufferPool.getBuffer();
+            try {
+                NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
+                
+                // Return a fresh copy
+                float[] result = new float[inputs];
+                System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+                return result;
+            } finally {
+                inputBufferPool.releaseBuffer(downstreamGradient);
+            }
+            
+        } finally {
+            gradientBufferPool.releaseBuffer(gradients);
+        }
     }
     
     @Override

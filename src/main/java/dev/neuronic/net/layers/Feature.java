@@ -15,7 +15,8 @@ public class Feature {
         ONEHOT,              // Low-cardinality → one-hot vectors  
         PASSTHROUGH,         // Numerical → direct pass-through (no scaling)
         AUTO_NORMALIZE,      // Numerical → auto z-score normalize (mean=0, std=1)
-        SCALE_BOUNDED        // Numerical → min-max scale with user-specified bounds
+        SCALE_BOUNDED,       // Numerical → min-max scale with user-specified bounds
+        HASHED_EMBEDDING     // High-cardinality → hash-based embeddings (no vocabulary limit)
     }
     
     private final Type type;
@@ -343,6 +344,81 @@ public class Feature {
         return new Feature(Type.AUTO_NORMALIZE, 0, 0, 0.0f, 0.0f, name.trim());
     }
     
+    /**
+     * Creates a hashed embedding feature for high-cardinality categorical data.
+     * 
+     * <p><b>When to use over regular embeddings:</b>
+     * <table>
+     *   <tr><th>Use hashedEmbedding when:</th><th>Use regular embedding when:</th></tr>
+     *   <tr><td>Vocabulary size unknown</td><td>Fixed, known vocabulary</td></tr>
+     *   <tr><td>Millions of possible values</td><td>Less than 10k values</td></tr>
+     *   <tr><td>Online learning scenario</td><td>Batch training with preprocessing</td></tr>
+     *   <tr><td>Memory constraints</td><td>Need perfect value distinction</td></tr>
+     * </table>
+     * 
+     * <p><b>How it works:</b> Uses multiple hash functions to map strings to embedding
+     * indices, then averages the embeddings. This provides collision resistance without
+     * requiring a vocabulary dictionary.
+     * 
+     * <p><b>Recommended configurations:</b>
+     * <ul>
+     *   <li>Low cardinality (100-1k): {@code hashedEmbedding(1_000, 8, name)}</li>
+     *   <li>Medium cardinality (1k-10k): {@code hashedEmbedding(10_000, 16, name)}</li>
+     *   <li>High cardinality (10k-100k): {@code hashedEmbedding(50_000, 32, name)}</li>
+     *   <li>Very high (100k+): {@code hashedEmbedding(100_000, 64, name)}</li>
+     * </ul>
+     * 
+     * <p><b>Example:</b>
+     * <pre>{@code
+     * // For domains with potentially millions of unique values
+     * Feature.hashedEmbedding(10_000, 16, "domain")
+     * 
+     * // For app bundles with unknown vocabulary
+     * Feature.hashedEmbedding(50_000, 32, "app_bundle")
+     * }</pre>
+     * 
+     * @param hashBuckets number of hash buckets (100 to 1M)
+     * @param embeddingDim embedding dimension (4 to 256)
+     * @param name feature name for debugging
+     * @return hashed embedding feature
+     * @throws IllegalArgumentException if parameters are out of valid ranges
+     */
+    public static Feature hashedEmbedding(int hashBuckets, int embeddingDim, String name) {
+        // Validation
+        if (hashBuckets < 100)
+            throw new IllegalArgumentException(
+                "Hash buckets too small: " + hashBuckets + ". Minimum 100 to avoid excessive collisions.");
+        if (hashBuckets > 1_000_000)
+            throw new IllegalArgumentException(
+                "Hash buckets too large: " + hashBuckets + ". Maximum 1M to avoid memory issues.");
+        if (embeddingDim < 4)
+            throw new IllegalArgumentException(
+                "Embedding dimension too small: " + embeddingDim + ". Minimum 4 for meaningful representations.");
+        if (embeddingDim > 256)
+            throw new IllegalArgumentException(
+                "Embedding dimension too large: " + embeddingDim + ". Maximum 256 to avoid overfitting.");
+        
+        // Check parameter efficiency
+        long totalParams = (long) hashBuckets * embeddingDim;
+        if (totalParams > 50_000_000)
+            throw new IllegalArgumentException(String.format(
+                "Total parameters (%d buckets × %d dims = %,d) exceeds 50M limit. " +
+                "Reduce buckets or embedding dimension.", 
+                hashBuckets, embeddingDim, totalParams));
+        
+        // Warn about dimension/bucket ratio
+        if (embeddingDim > hashBuckets / 100)
+            throw new IllegalArgumentException(String.format(
+                "Embedding dimension (%d) too large relative to buckets (%d). " +
+                "Dimension should be < buckets/100 for efficiency.", 
+                embeddingDim, hashBuckets));
+        
+        if (name == null || name.trim().isEmpty())
+            throw new IllegalArgumentException("Feature name cannot be null or empty");
+            
+        return new Feature(Type.HASHED_EMBEDDING, hashBuckets, embeddingDim, 0.0f, 0.0f, name.trim());
+    }
+    
     
     // Package-private getters for layer implementation
     public Type getType() { return type; }
@@ -362,7 +438,7 @@ public class Feature {
      */
     int getOutputDimension() {
         return switch (type) {
-            case EMBEDDING -> embeddingDimension;
+            case EMBEDDING, HASHED_EMBEDDING -> embeddingDimension;
             case ONEHOT -> maxUniqueValues; // numberOfCategories stored in maxUniqueValues
             case PASSTHROUGH, AUTO_NORMALIZE, SCALE_BOUNDED -> 1;
         };
@@ -372,6 +448,8 @@ public class Feature {
     public String toString() {
         String base = switch (type) {
             case EMBEDDING -> String.format("Feature.embedding(maxUniqueValues=%d, embeddingDimension=%d)", 
+                                           maxUniqueValues, embeddingDimension);
+            case HASHED_EMBEDDING -> String.format("Feature.hashedEmbedding(hashBuckets=%d, embeddingDimension=%d)", 
                                            maxUniqueValues, embeddingDimension);
             case ONEHOT -> String.format("Feature.oneHot(numberOfCategories=%d)", maxUniqueValues);
             case PASSTHROUGH -> "Feature.passthrough()";

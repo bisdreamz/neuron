@@ -28,21 +28,14 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
     protected final float[] biases;
     protected final int neurons;
     protected final int inputs;
-    protected final ThreadLocal<float[]> preActivationBuffers;
-    protected final ThreadLocal<float[]> activationOutputBuffers;
-    protected final ThreadLocal<float[]> activationDerivativeBuffers;
-    protected final ThreadLocal<float[]> neuronDeltaBuffers;
-    protected final ThreadLocal<float[]> inputBuffers;
-    protected final ThreadLocal<float[][]> weightGradientBuffers;
+    // Instance buffer pools - one pool per buffer size
+    private final PooledFloatArray neuronBufferPool;      // For neuron-sized arrays
+    private final PooledFloatArray inputBufferPool;       // For input-sized arrays
     
-    // Gradient accumulation state
+    // Gradient accumulation state - these need to persist between calls
     protected final ThreadLocal<float[][]> accumulatedWeightGradients;
     protected final ThreadLocal<float[]> accumulatedBiasGradients;
     protected final ThreadLocal<Boolean> accumulating;
-    
-    // Buffer pools for temporary gradient arrays - shared across all DenseLayer instances
-    private static final ConcurrentHashMap<Integer, PooledFloatArray> biasGradientPools = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<Integer, PooledFloatArray> weightGradientRowPools = new ConcurrentHashMap<>();
 
     public DenseLayer(Optimizer optimizer, Activator activator, int neurons, int inputs, WeightInitStrategy initStrategy) {
         this.optimizer = optimizer;
@@ -51,12 +44,10 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         this.biases = new float[neurons];
         this.neurons = neurons;
         this.inputs = inputs;
-        this.preActivationBuffers = ThreadLocal.withInitial(() -> new float[neurons]);
-        this.activationOutputBuffers = ThreadLocal.withInitial(() -> new float[neurons]);
-        this.activationDerivativeBuffers = ThreadLocal.withInitial(() -> new float[neurons]);
-        this.neuronDeltaBuffers = ThreadLocal.withInitial(() -> new float[neurons]);
-        this.inputBuffers = ThreadLocal.withInitial(() -> new float[inputs]);
-        this.weightGradientBuffers = ThreadLocal.withInitial(() -> new float[inputs][neurons]);
+        
+        // Initialize buffer pools
+        this.neuronBufferPool = new PooledFloatArray(neurons);
+        this.inputBufferPool = new PooledFloatArray(inputs);
         
         // Initialize gradient accumulation state
         this.accumulatedWeightGradients = ThreadLocal.withInitial(() -> new float[inputs][neurons]);
@@ -72,7 +63,6 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
     }
 
     public Layer.LayerContext forward(float[] input) {
-        // Allocate new arrays for LayerContext - never use ThreadLocal buffers in contexts
         float[] preActivations = new float[neurons];
         NetMath.matrixPreActivationsColumnMajor(input, weights, biases, preActivations);
         
@@ -89,7 +79,6 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
     public float[] backward(Layer.LayerContext[] stack, int stackIndex, float[] upstreamGradient, 
                           Loss loss) {
         Layer.LayerContext context = stack[stackIndex];
-        float[] neuronDeltas;
         
         // Check if this is the final layer and loss handles activation derivatives
         boolean isFinalLayer = stackIndex == stack.length - 1;
@@ -101,30 +90,45 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
             skipActivationDerivatives = combined.getHandledActivator().equals(activator.getClass());
         }
 
-        if (skipActivationDerivatives) {
-            // Loss function already computed combined derivative - use upstream gradient directly
-            neuronDeltas = upstreamGradient.clone();
-        } else {
-            // Standard backpropagation: apply activation derivatives
-            float[] activationDerivatives = activationDerivativeBuffers.get();
-            activator.derivative(context.preActivations(), activationDerivatives);
-
-            neuronDeltas = neuronDeltaBuffers.get();
-            NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
-        }
-
-        // Compute weight gradients using optimized column-major computation
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
-
-        // Update weights and biases
-        optimizer.optimize(weights, biases, weightGradients, neuronDeltas);
-
-        // Compute downstream gradient using optimized matrix-vector multiplication
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
+        float[] neuronDeltas = null;
+        float[] activationDerivatives = null;
+        float[] downstreamGradient = null;
         
-        return downstreamGradient;
+        try {
+            if (skipActivationDerivatives) {
+                neuronDeltas = upstreamGradient.clone();
+            } else {
+                activationDerivatives = neuronBufferPool.getBuffer();
+                activator.derivative(context.preActivations(), activationDerivatives);
+
+                neuronDeltas = neuronBufferPool.getBuffer();
+                NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
+            }
+
+            float[][] weightGradients = new float[inputs][neurons];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
+
+            optimizer.optimize(weights, biases, weightGradients, neuronDeltas);
+
+            downstreamGradient = inputBufferPool.getBuffer();
+            NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
+            
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            if (activationDerivatives != null) {
+                neuronBufferPool.releaseBuffer(activationDerivatives);
+            }
+            // Don't release neuronDeltas if it's a clone of upstreamGradient
+            if (neuronDeltas != null && !skipActivationDerivatives) {
+                neuronBufferPool.releaseBuffer(neuronDeltas);
+            }
+            if (downstreamGradient != null) {
+                inputBufferPool.releaseBuffer(downstreamGradient);
+            }
+        }
     }
     
     @Override
@@ -148,9 +152,7 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
     public float[] backward(Layer.LayerContext[] stack, int stackIndex, float[] upstreamGradient,
                             Loss loss, ExecutorService executor) {
         Layer.LayerContext context = stack[stackIndex];
-        float[] neuronDeltas;
         
-        // Check if this is the final layer and loss handles activation derivatives
         boolean isFinalLayer = stackIndex == stack.length - 1;
         boolean skipActivationDerivatives = false;
         
@@ -160,30 +162,45 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
             skipActivationDerivatives = combined.getHandledActivator().equals(activator.getClass());
         }
 
-        if (skipActivationDerivatives) {
-            // Loss function already computed combined derivative - use upstream gradient directly
-            neuronDeltas = upstreamGradient.clone();
-        } else {
-            // Standard backpropagation: apply activation derivatives
-            float[] activationDerivatives = activationDerivativeBuffers.get();
-            activator.derivative(context.preActivations(), activationDerivatives, executor);
-
-            neuronDeltas = neuronDeltaBuffers.get();
-            NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
-        }
-
-        // Compute weight gradients using optimized column-major computation
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
-
-        // Update weights and biases with executor
-        optimizer.optimize(weights, biases, weightGradients, neuronDeltas, executor);
-
-        // Compute downstream gradient using optimized matrix-vector multiplication
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
+        float[] neuronDeltas = null;
+        float[] activationDerivatives = null;
+        float[] downstreamGradient = null;
         
-        return downstreamGradient;
+        try {
+            if (skipActivationDerivatives) {
+                neuronDeltas = upstreamGradient.clone();
+            } else {
+                activationDerivatives = neuronBufferPool.getBuffer();
+                activator.derivative(context.preActivations(), activationDerivatives, executor);
+
+                neuronDeltas = neuronBufferPool.getBuffer();
+                NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
+            }
+
+            float[][] weightGradients = new float[inputs][neurons];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
+
+            optimizer.optimize(weights, biases, weightGradients, neuronDeltas, executor);
+
+            downstreamGradient = inputBufferPool.getBuffer();
+            NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
+            
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            if (activationDerivatives != null) {
+                neuronBufferPool.releaseBuffer(activationDerivatives);
+            }
+            // Don't release neuronDeltas if it's a clone of upstreamGradient
+            if (neuronDeltas != null && !skipActivationDerivatives) {
+                neuronBufferPool.releaseBuffer(neuronDeltas);
+            }
+            if (downstreamGradient != null) {
+                inputBufferPool.releaseBuffer(downstreamGradient);
+            }
+        }
     }
     
     @Override
@@ -191,27 +208,42 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
                                   float[] upstreamGradient, GradientConsumer gradientConsumer) {
         LayerContext context = stack[stackIndex];
         
-        // Apply activation derivative
-        float[] activationDerivatives = activationDerivativeBuffers.get();
-        activator.derivative(context.preActivations(), activationDerivatives);
+        float[] activationDerivatives = null;
+        float[] neuronDeltas = null;
+        float[] downstreamGradient = null;
         
-        float[] neuronDeltas = neuronDeltaBuffers.get();
-        NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
-        
-        // Compute weight gradients
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
-        
-        // Pass gradients to consumer if provided
-        if (gradientConsumer != null) {
-            gradientConsumer.accept(stackIndex, weightGradients, neuronDeltas);
+        try {
+            activationDerivatives = neuronBufferPool.getBuffer();
+            activator.derivative(context.preActivations(), activationDerivatives);
+            
+            neuronDeltas = neuronBufferPool.getBuffer();
+            NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
+            
+            float[][] weightGradients = new float[inputs][neurons];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
+            
+            if (gradientConsumer != null) {
+                gradientConsumer.accept(stackIndex, weightGradients, neuronDeltas);
+            }
+            
+            downstreamGradient = inputBufferPool.getBuffer();
+            NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
+            
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            if (activationDerivatives != null) {
+                neuronBufferPool.releaseBuffer(activationDerivatives);
+            }
+            if (neuronDeltas != null) {
+                neuronBufferPool.releaseBuffer(neuronDeltas);
+            }
+            if (downstreamGradient != null) {
+                inputBufferPool.releaseBuffer(downstreamGradient);
+            }
         }
-        
-        // Compute downstream gradient
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
-        
-        return downstreamGradient;
     }
     
     @Override
@@ -251,44 +283,57 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
     @Override
     public float[] backwardAccumulate(Layer.LayerContext[] stack, int stackIndex, float[] upstreamGradient) {
         Layer.LayerContext context = stack[stackIndex];
-        float[] neuronDeltas;
         
-        // Check if this is the final layer and loss handles activation derivatives
         boolean isFinalLayer = stackIndex == stack.length - 1;
         
-        if (isFinalLayer && activator instanceof SoftmaxActivator) {
-            // Assume combined loss-activation optimization
-            neuronDeltas = upstreamGradient.clone();
-        } else {
-            // Standard backpropagation: apply activation derivatives
-            float[] activationDerivatives = activationDerivativeBuffers.get();
-            activator.derivative(context.preActivations(), activationDerivatives);
+        float[] neuronDeltas = null;
+        float[] activationDerivatives = null;
+        float[] downstreamGradient = null;
+        
+        try {
+            if (isFinalLayer && activator instanceof SoftmaxActivator) {
+                neuronDeltas = upstreamGradient.clone();
+            } else {
+                activationDerivatives = neuronBufferPool.getBuffer();
+                activator.derivative(context.preActivations(), activationDerivatives);
 
-            neuronDeltas = neuronDeltaBuffers.get();
-            NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
+                neuronDeltas = neuronBufferPool.getBuffer();
+                NetMath.elementwiseMultiply(activationDerivatives, upstreamGradient, neuronDeltas);
+            }
+
+            float[][] weightGradients = new float[inputs][neurons];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
+
+            float[][] accWeightGrads = accumulatedWeightGradients.get();
+            float[] accBiasGrads = accumulatedBiasGradients.get();
+        
+            // Add weight gradients to accumulated - process row by row
+            for (int i = 0; i < inputs; i++) {
+                NetMath.elementwiseAdd(accWeightGrads[i], weightGradients[i], accWeightGrads[i]);
+            }
+            
+            // Add bias gradients to accumulated
+            NetMath.elementwiseAdd(accBiasGrads, neuronDeltas, accBiasGrads);
+
+            // Compute downstream gradient
+            downstreamGradient = inputBufferPool.getBuffer();
+            NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
+            
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            if (activationDerivatives != null && !(isFinalLayer && activator instanceof SoftmaxActivator)) {
+                neuronBufferPool.releaseBuffer(activationDerivatives);
+            }
+            if (neuronDeltas != null && !(isFinalLayer && activator instanceof SoftmaxActivator)) {
+                neuronBufferPool.releaseBuffer(neuronDeltas);
+            }
+            if (downstreamGradient != null) {
+                inputBufferPool.releaseBuffer(downstreamGradient);
+            }
         }
-
-        // Compute weight gradients
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), neuronDeltas, weightGradients);
-
-        // Accumulate gradients using NetMath operations
-        float[][] accWeightGrads = accumulatedWeightGradients.get();
-        float[] accBiasGrads = accumulatedBiasGradients.get();
-        
-        // Add weight gradients to accumulated - process row by row
-        for (int i = 0; i < inputs; i++) {
-            NetMath.elementwiseAdd(accWeightGrads[i], weightGradients[i], accWeightGrads[i]);
-        }
-        
-        // Add bias gradients to accumulated
-        NetMath.elementwiseAdd(accBiasGrads, neuronDeltas, accBiasGrads);
-
-        // Compute downstream gradient
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, neuronDeltas, downstreamGradient);
-        
-        return downstreamGradient;
     }
     
     @Override
@@ -298,38 +343,30 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         float[][] accWeightGrads = accumulatedWeightGradients.get();
         float[] accBiasGrads = accumulatedBiasGradients.get();
         
-        // Get temporary buffers from pools
-        PooledFloatArray biasPool = getBiasGradientPool();
-        float[] tempBiasGrads = biasPool.getBuffer(false); // false = no need to zero, we'll overwrite
+        float[] tempBiasGrads = neuronBufferPool.getBuffer(false);
         
         float[][] tempWeightGrads = new float[inputs][];
-        PooledFloatArray rowPool = getWeightGradientRowPool();
         for (int i = 0; i < inputs; i++) {
-            tempWeightGrads[i] = rowPool.getBuffer(false);
+            tempWeightGrads[i] = neuronBufferPool.getBuffer(false);
         }
         
         try {
-            // Copy and scale gradients into temporary buffers
             float scale = 1.0f / batchSize;
             
-            // Copy and scale weight gradients
             for (int i = 0; i < inputs; i++) {
                 System.arraycopy(accWeightGrads[i], 0, tempWeightGrads[i], 0, neurons);
                 NetMath.elementwiseScaleInPlace(tempWeightGrads[i], scale);
             }
             
-            // Copy and scale bias gradients
             System.arraycopy(accBiasGrads, 0, tempBiasGrads, 0, neurons);
             NetMath.elementwiseScaleInPlace(tempBiasGrads, scale);
             
-            // Update weights and biases using temporary scaled gradients
             optimizer.optimize(weights, biases, tempWeightGrads, tempBiasGrads);
             
         } finally {
-            // Always return buffers to pools
-            biasPool.releaseBuffer(tempBiasGrads);
+            neuronBufferPool.releaseBuffer(tempBiasGrads);
             for (int i = 0; i < inputs; i++) {
-                rowPool.releaseBuffer(tempWeightGrads[i]);
+                neuronBufferPool.releaseBuffer(tempWeightGrads[i]);
             }
             
             accumulating.set(Boolean.FALSE);
@@ -379,38 +416,30 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         float[][] accWeightGrads = accumulatedWeightGradients.get();
         float[] accBiasGrads = accumulatedBiasGradients.get();
         
-        // Get temporary buffers from pools
-        PooledFloatArray biasPool = getBiasGradientPool();
-        float[] tempBiasGrads = biasPool.getBuffer(false);
+        float[] tempBiasGrads = neuronBufferPool.getBuffer(false);
         
         float[][] tempWeightGrads = new float[inputs][];
-        PooledFloatArray rowPool = getWeightGradientRowPool();
         for (int i = 0; i < inputs; i++) {
-            tempWeightGrads[i] = rowPool.getBuffer(false);
+            tempWeightGrads[i] = neuronBufferPool.getBuffer(false);
         }
         
         try {
-            // Copy and scale gradients into temporary buffers
             float scale = scaleFactor / batchSize;
             
-            // Copy and scale weight gradients
             for (int i = 0; i < inputs; i++) {
                 System.arraycopy(accWeightGrads[i], 0, tempWeightGrads[i], 0, neurons);
                 NetMath.elementwiseScaleInPlace(tempWeightGrads[i], scale);
             }
             
-            // Copy and scale bias gradients
             System.arraycopy(accBiasGrads, 0, tempBiasGrads, 0, neurons);
             NetMath.elementwiseScaleInPlace(tempBiasGrads, scale);
             
-            // Update weights and biases using temporary scaled gradients
             optimizer.optimize(weights, biases, tempWeightGrads, tempBiasGrads);
             
         } finally {
-            // Always return buffers to pools
-            biasPool.releaseBuffer(tempBiasGrads);
+            neuronBufferPool.releaseBuffer(tempBiasGrads);
             for (int i = 0; i < inputs; i++) {
-                rowPool.releaseBuffer(tempWeightGrads[i]);
+                neuronBufferPool.releaseBuffer(tempWeightGrads[i]);
             }
             
             accumulating.set(Boolean.FALSE);
@@ -675,18 +704,5 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         return SerializationConstants.TYPE_DENSE_LAYER;
     }
     
-    /**
-     * Get or create a buffer pool for bias gradients of this layer's size.
-     */
-    private PooledFloatArray getBiasGradientPool() {
-        return biasGradientPools.computeIfAbsent(neurons, PooledFloatArray::new);
-    }
-    
-    /**
-     * Get or create a buffer pool for weight gradient rows of this layer's size.
-     */
-    private PooledFloatArray getWeightGradientRowPool() {
-        return weightGradientRowPools.computeIfAbsent(neurons, PooledFloatArray::new);
-    }
 
 }
