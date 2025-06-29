@@ -3,6 +3,7 @@ package dev.neuronic.net.outputs;
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.GradientAccumulator;
 import dev.neuronic.net.layers.BaseLayerSpec;
+import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.activators.SoftmaxActivator;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.WeightInitStrategy;
@@ -34,11 +35,9 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
     private final float[] biases;
     private final int neurons;
     private final int inputs;
-    private final ThreadLocal<float[]> logitBuffers;
-    private final ThreadLocal<float[]> probabilityBuffers;
-    private final ThreadLocal<float[]> gradientBuffers;
-    private final ThreadLocal<float[]> inputBuffers;
-    private final ThreadLocal<float[][]> weightGradientBuffers;
+    // Instance buffer pools for different array sizes
+    private final PooledFloatArray neuronBufferPool;      // For neuron-sized arrays
+    private final PooledFloatArray inputBufferPool;       // For input-sized arrays
     
     // Gradient accumulation state
     private final ThreadLocal<float[][]> accumulatedWeightGradients;
@@ -51,11 +50,9 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
         this.biases = new float[neurons];
         this.neurons = neurons;
         this.inputs = inputs;
-        this.logitBuffers = ThreadLocal.withInitial(() -> new float[neurons]);
-        this.probabilityBuffers = ThreadLocal.withInitial(() -> new float[neurons]);
-        this.gradientBuffers = ThreadLocal.withInitial(() -> new float[neurons]);
-        this.inputBuffers = ThreadLocal.withInitial(() -> new float[inputs]);
-        this.weightGradientBuffers = ThreadLocal.withInitial(() -> new float[inputs][neurons]);
+        // Initialize buffer pools
+        this.neuronBufferPool = new PooledFloatArray(neurons);
+        this.inputBufferPool = new PooledFloatArray(inputs);
         
         // Initialize gradient accumulation state
         this.accumulatedWeightGradients = ThreadLocal.withInitial(() -> new float[inputs][neurons]);
@@ -95,22 +92,32 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
     public float[] backward(LayerContext[] stack, int stackIndex, float[] targets) {
         LayerContext context = stack[stackIndex];
         
-        // Fused gradient: softmax_output - targets (mathematically optimal)
-        float[] gradients = gradientBuffers.get();
-        NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+        float[] gradients = neuronBufferPool.getBuffer();
+        float[] downstreamGradient = inputBufferPool.getBuffer();
         
-        // Compute weight gradients using NetMath
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
-        
-        // Update weights and biases
-        optimizer.optimize(weights, biases, weightGradients, gradients);
-        
-        // Compute downstream gradient using NetMath
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
-        
-        return downstreamGradient;
+        try {
+            // Fused gradient: softmax_output - targets (mathematically optimal)
+            NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+            
+            // Compute weight gradients using NetMath
+            float[][] weightGradients = new float[inputs][neurons];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
+            
+            // Update weights and biases
+            optimizer.optimize(weights, biases, weightGradients, gradients);
+            
+            // Compute downstream gradient using NetMath
+            NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
+            
+            // Return a fresh copy
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            neuronBufferPool.releaseBuffer(gradients);
+            inputBufferPool.releaseBuffer(downstreamGradient);
+        }
     }
     
     @Override
@@ -128,24 +135,34 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
                                             float[] targets, GradientConsumer gradientConsumer) {
         LayerContext context = stack[stackIndex];
         
-        // Fused gradient: softmax_output - targets (mathematically optimal)
-        float[] gradients = gradientBuffers.get();
-        NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+        float[] gradients = neuronBufferPool.getBuffer();
+        float[] downstreamGradient = inputBufferPool.getBuffer();
         
-        // Compute weight gradients
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
-        
-        // Pass gradients to consumer if provided
-        if (gradientConsumer != null) {
-            gradientConsumer.accept(stackIndex, weightGradients, gradients);
+        try {
+            // Fused gradient: softmax_output - targets (mathematically optimal)
+            NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+            
+            // Compute weight gradients
+            float[][] weightGradients = new float[inputs][neurons];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
+            
+            // Pass gradients to consumer if provided
+            if (gradientConsumer != null) {
+                gradientConsumer.accept(stackIndex, weightGradients, gradients);
+            }
+            
+            // Compute downstream gradient
+            NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
+            
+            // Return a fresh copy
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            neuronBufferPool.releaseBuffer(gradients);
+            inputBufferPool.releaseBuffer(downstreamGradient);
         }
-        
-        // Compute downstream gradient
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
-        
-        return downstreamGradient;
     }
     
     @Override
@@ -175,31 +192,44 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
     public float[] backwardAccumulate(LayerContext[] stack, int stackIndex, float[] targets) {
         LayerContext context = stack[stackIndex];
         
-        // Fused gradient: softmax_output - targets
-        float[] gradients = gradientBuffers.get();
-        NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+        float[] gradients = neuronBufferPool.getBuffer();
         
-        // Compute weight gradients using NetMath
-        float[][] weightGradients = weightGradientBuffers.get();
-        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
-        
-        // Accumulate gradients
-        float[][] accWeightGrads = accumulatedWeightGradients.get();
-        float[] accBiasGrads = accumulatedBiasGradients.get();
-        
-        // Add weight gradients to accumulated
-        for (int i = 0; i < inputs; i++) {
-            NetMath.elementwiseAdd(accWeightGrads[i], weightGradients[i], accWeightGrads[i]);
+        try {
+            // Fused gradient: softmax_output - targets
+            NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+            
+            // Compute weight gradients using NetMath
+            float[][] weightGradients = new float[inputs][neurons];
+            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
+            
+            // Accumulate gradients
+            float[][] accWeightGrads = accumulatedWeightGradients.get();
+            float[] accBiasGrads = accumulatedBiasGradients.get();
+            
+            // Add weight gradients to accumulated
+            for (int i = 0; i < inputs; i++) {
+                NetMath.elementwiseAdd(accWeightGrads[i], weightGradients[i], accWeightGrads[i]);
+            }
+            
+            // Add bias gradients to accumulated
+            NetMath.elementwiseAdd(accBiasGrads, gradients, accBiasGrads);
+            
+            // Compute downstream gradient using NetMath
+            float[] downstreamGradient = inputBufferPool.getBuffer();
+            try {
+                NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
+                
+                // Return a fresh copy
+                float[] result = new float[inputs];
+                System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+                return result;
+            } finally {
+                inputBufferPool.releaseBuffer(downstreamGradient);
+            }
+            
+        } finally {
+            neuronBufferPool.releaseBuffer(gradients);
         }
-        
-        // Add bias gradients to accumulated
-        NetMath.elementwiseAdd(accBiasGrads, gradients, accBiasGrads);
-        
-        // Compute downstream gradient using NetMath
-        float[] downstreamGradient = inputBuffers.get();
-        NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
-        
-        return downstreamGradient;
     }
     
     @Override

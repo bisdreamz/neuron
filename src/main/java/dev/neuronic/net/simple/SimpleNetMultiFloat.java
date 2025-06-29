@@ -347,6 +347,108 @@ public class SimpleNetMultiFloat extends SimpleNet<float[]> {
     
     // Private helper methods
     
+    // ===============================
+    // BATCH TRAINING METHODS
+    // ===============================
+    
+    /**
+     * Train the network on a batch of samples using Map-based inputs.
+     * This provides convenient batch training without requiring a full training configuration.
+     * 
+     * <p><b>Example usage:</b>
+     * <pre>{@code
+     * List<Map<String, Object>> batchInputs = new ArrayList<>();
+     * List<float[]> batchTargets = new ArrayList<>();
+     * 
+     * // Accumulate batch (e.g., portfolio allocations)
+     * for (Client client : clients) {
+     *     batchInputs.add(client.getRiskProfile());
+     *     batchTargets.add(new float[]{0.6f, 0.3f, 0.1f}); // stocks, bonds, cash
+     * }
+     * 
+     * // Train as a batch
+     * model.trainBatchMaps(batchInputs, batchTargets);
+     * }</pre>
+     * 
+     * @param inputs list of Map inputs with feature names to values
+     * @param targets list of target float arrays
+     * @throws IllegalArgumentException if inputs and targets have different sizes
+     */
+    public void trainBatchMaps(List<Map<String, Object>> inputs, List<float[]> targets) {
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException(
+                "Inputs and targets must have the same size. Got " + 
+                inputs.size() + " inputs and " + targets.size() + " targets.");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        if (!usesFeatureMapping) {
+            throw new IllegalArgumentException(
+                "This model does not use mixed features. Use trainBatchArrays() instead.");
+        }
+        
+        // Convert inputs to float arrays
+        float[][] encodedInputs = new float[inputs.size()][];
+        for (int i = 0; i < inputs.size(); i++) {
+            encodedInputs[i] = convertFromMap(inputs.get(i));
+        }
+        
+        // Encode targets
+        float[][] encodedTargets = encodeTargets(targets);
+        
+        // Use the underlying neural network's batch training
+        underlyingNet.trainBatch(encodedInputs, encodedTargets);
+    }
+    
+    /**
+     * Train the network on a batch of samples using float array inputs.
+     * This provides convenient batch training without requiring a full training configuration.
+     * 
+     * <p><b>Example usage:</b>
+     * <pre>{@code
+     * List<float[]> batchInputs = new ArrayList<>();
+     * List<float[]> batchTargets = new ArrayList<>();
+     * 
+     * // Accumulate batch
+     * for (Example ex : examples) {
+     *     batchInputs.add(ex.getInputFeatures());
+     *     batchTargets.add(ex.getMultiOutputTargets());
+     * }
+     * 
+     * // Train as a batch
+     * model.trainBatchArrays(batchInputs, batchTargets);
+     * }</pre>
+     * 
+     * @param inputs list of float array inputs
+     * @param targets list of target float arrays
+     * @throws IllegalArgumentException if inputs and targets have different sizes
+     */
+    public void trainBatchArrays(List<float[]> inputs, List<float[]> targets) {
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException(
+                "Inputs and targets must have the same size. Got " + 
+                inputs.size() + " inputs and " + targets.size() + " targets.");
+        }
+        
+        if (inputs.isEmpty()) {
+            return; // Nothing to train
+        }
+        
+        // Convert inputs to float arrays
+        float[][] encodedInputs = new float[inputs.size()][];
+        for (int i = 0; i < inputs.size(); i++) {
+            encodedInputs[i] = convertFromFloatArray(inputs.get(i));
+        }
+        
+        // Encode targets
+        float[][] encodedTargets = encodeTargets(targets);
+        
+        // Use the underlying neural network's batch training
+        underlyingNet.trainBatch(encodedInputs, encodedTargets);
+    }
     
     
     // ===============================

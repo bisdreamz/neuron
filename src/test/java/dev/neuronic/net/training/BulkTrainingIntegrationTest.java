@@ -39,15 +39,16 @@ class BulkTrainingIntegrationTest {
         
         SimpleNetInt classifier = SimpleNet.ofIntClassification(net);
         
-        // Generate synthetic classification data (3 classes, 4 features)
+        // Generate larger synthetic classification data to ensure measurable training time
+        // Using 2000 samples to guarantee work even on fast systems
         List<Object> inputs = new ArrayList<>();
         List<Integer> labels = new ArrayList<>();
         Random random = new Random(42);
         
-        for (int i = 0; i < 300; i++) {
+        for (int i = 0; i < 2000; i++) {
             float[] features = new float[4];
             for (int j = 0; j < 4; j++) {
-                features[j] = (float) random.nextGaussian();
+                features[j] = (float) random.nextGaussian() * 2.0f; // Larger variance
             }
             
             // Create separable classes based on features
@@ -58,10 +59,10 @@ class BulkTrainingIntegrationTest {
             labels.add(label);
         }
         
-        // Configure training with callbacks
+        // Configure training with more epochs to ensure measurable time
         SimpleNetTrainingConfig config = SimpleNetTrainingConfig.builder()
-            .batchSize(32)
-            .epochs(5)
+            .batchSize(64)
+            .epochs(10)  // More epochs for measurable work
             .build();
         
         // Train with bulk method
@@ -73,8 +74,7 @@ class BulkTrainingIntegrationTest {
         
         // Verify training completed successfully
         assertTrue(finalValAccuracy > 0.0, "Final validation accuracy should be positive");
-        assertEquals(5, metrics.getEpochCount(), "Should have completed 5 epochs");
-        // Note: progressMessages tracking removed as the new API doesn't support custom callbacks directly
+        assertEquals(10, metrics.getEpochCount(), "Should have completed 10 epochs");
         
         // Verify metrics were collected
         assertNotNull(metrics.getFinalAccuracy(), "Should have final training accuracy");
@@ -93,7 +93,7 @@ class BulkTrainingIntegrationTest {
         String summary = metrics.getSummary();
         assertNotNull(summary, "Should generate summary");
         assertTrue(summary.contains("Training Summary"), "Summary should contain header");
-        assertTrue(summary.contains("Epochs: 5"), "Summary should show epoch count");
+        assertTrue(summary.contains("Epochs: 10"), "Summary should show epoch count");
     }
     
     @Test

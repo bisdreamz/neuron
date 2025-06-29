@@ -2,6 +2,7 @@ package dev.neuronic.net.outputs;
 
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.BaseLayerSpec;
+import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.math.NetMath;
 
@@ -25,11 +26,9 @@ public class MultiLabelSigmoidOutput implements Layer {
     private final float[] biases;
     private final int labels;
     private final int inputs;
-    private final ThreadLocal<float[]> logitBuffers;
-    private final ThreadLocal<float[]> probabilityBuffers;
-    private final ThreadLocal<float[]> neuronBuffers;
-    private final ThreadLocal<float[]> inputBuffers;
-    private final ThreadLocal<float[][]> weightGradientBuffers;
+    // Instance buffer pools for different array sizes
+    private final PooledFloatArray labelBufferPool;       // For label-sized arrays
+    private final PooledFloatArray inputBufferPool;       // For input-sized arrays
     
     public MultiLabelSigmoidOutput(Optimizer optimizer, int labels, int inputs) {
         this.optimizer = optimizer;
@@ -37,11 +36,9 @@ public class MultiLabelSigmoidOutput implements Layer {
         this.biases = new float[labels];
         this.labels = labels;
         this.inputs = inputs;
-        this.logitBuffers = ThreadLocal.withInitial(() -> new float[labels]);
-        this.probabilityBuffers = ThreadLocal.withInitial(() -> new float[labels]);
-        this.neuronBuffers = ThreadLocal.withInitial(() -> new float[labels]);
-        this.inputBuffers = ThreadLocal.withInitial(() -> new float[inputs]);
-        this.weightGradientBuffers = ThreadLocal.withInitial(() -> new float[inputs][labels]);
+        // Initialize buffer pools
+        this.labelBufferPool = new PooledFloatArray(labels);
+        this.inputBufferPool = new PooledFloatArray(inputs);
         
         // Xavier initialization for sigmoid
         NetMath.weightInitXavier(weights, inputs, labels);
@@ -93,34 +90,44 @@ public class MultiLabelSigmoidOutput implements Layer {
     public float[] backward(LayerContext[] stack, int stackIndex, float[] targets) {
         LayerContext context = stack[stackIndex];
         
-        // Binary cross-entropy + sigmoid gradient for each label: prediction - target
-        float[] gradients = neuronBuffers.get();
-        for (int i = 0; i < labels; i++) {
-            gradients[i] = context.outputs()[i] - targets[i];
-        }
+        float[] gradients = labelBufferPool.getBuffer();
+        float[] downstreamGradient = inputBufferPool.getBuffer();
         
-        // Compute weight gradients
-        float[][] weightGradients = weightGradientBuffers.get();
-        for (int inputIdx = 0; inputIdx < inputs; inputIdx++) {
-            for (int labelIdx = 0; labelIdx < labels; labelIdx++) {
-                weightGradients[inputIdx][labelIdx] = context.inputs()[inputIdx] * gradients[labelIdx];
+        try {
+            // Binary cross-entropy + sigmoid gradient for each label: prediction - target
+            for (int i = 0; i < labels; i++) {
+                gradients[i] = context.outputs()[i] - targets[i];
             }
-        }
-        
-        // Update weights and biases
-        optimizer.optimize(weights, biases, weightGradients, gradients);
-        
-        // Compute downstream gradient
-        float[] downstreamGradient = inputBuffers.get();
-        for (int inputIdx = 0; inputIdx < inputs; inputIdx++) {
-            float sum = 0;
-            for (int labelIdx = 0; labelIdx < labels; labelIdx++) {
-                sum += gradients[labelIdx] * weights[inputIdx][labelIdx];
+            
+            // Compute weight gradients
+            float[][] weightGradients = new float[inputs][labels];
+            for (int inputIdx = 0; inputIdx < inputs; inputIdx++) {
+                for (int labelIdx = 0; labelIdx < labels; labelIdx++) {
+                    weightGradients[inputIdx][labelIdx] = context.inputs()[inputIdx] * gradients[labelIdx];
+                }
             }
-            downstreamGradient[inputIdx] = sum;
+            
+            // Update weights and biases
+            optimizer.optimize(weights, biases, weightGradients, gradients);
+            
+            // Compute downstream gradient
+            for (int inputIdx = 0; inputIdx < inputs; inputIdx++) {
+                float sum = 0;
+                for (int labelIdx = 0; labelIdx < labels; labelIdx++) {
+                    sum += gradients[labelIdx] * weights[inputIdx][labelIdx];
+                }
+                downstreamGradient[inputIdx] = sum;
+            }
+            
+            // Return a fresh copy
+            float[] result = new float[inputs];
+            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
+            return result;
+            
+        } finally {
+            labelBufferPool.releaseBuffer(gradients);
+            inputBufferPool.releaseBuffer(downstreamGradient);
         }
-        
-        return downstreamGradient;
     }
     
     @Override
