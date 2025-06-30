@@ -65,6 +65,7 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 public class MixedFeatureInputLayer implements Layer, Serializable {
     
     private final Optimizer optimizer;
+    private Optimizer embeddingOptimizer; // Optimizer for embeddings (may be same as optimizer)
     private final Feature[] features;
     private final float[][][] embeddings; // [featureIndex][valueIndex][embeddingDim] - only for embedding features
     private final int totalOutputDimension;
@@ -85,6 +86,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     
     // Gradient clipping for embeddings
     private float embeddingGradientClipNorm = 0.0f; // 0 = disabled
+    
     
     // Thread-local gradient accumulation to avoid race conditions
     private static class GradientAccumulator {
@@ -145,6 +147,8 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         }
         
         this.optimizer = optimizer;
+        this.embeddingOptimizer = optimizer.forEmbeddings();
+        
         this.features = features.clone(); // Defensive copy
         this.totalOutputDimension = calculateTotalOutputDimension(features);
         
@@ -159,11 +163,9 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                 int embeddingDim = features[i].getEmbeddingDimension();
                 this.embeddings[i] = new float[maxValues][embeddingDim];
                 
-                // Initialize embeddings with chosen strategy
-                switch (initStrategy) {
-                    case XAVIER -> NetMath.weightInitXavier(embeddings[i], embeddingDim, embeddingDim);
-                    case HE -> NetMath.weightInitHe(embeddings[i], embeddingDim);
-                }
+                // Initialize embeddings with uniform distribution for better learning
+                // Embeddings need different initialization than dense layers
+                NetMath.embeddingInitUniform(embeddings[i], -0.05f, 0.05f);
             }
         }
         
@@ -522,8 +524,8 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                         idx++;
                     }
                     
-                    // Update via optimizer
-                    optimizer.optimize(touchedEmbeddings, new float[0], touchedGradients, new float[0]);
+                    // Update embeddings using embedding optimizer (no weight decay for AdamW)
+                    embeddingOptimizer.optimize(touchedEmbeddings, new float[0], touchedGradients, new float[0]);
                     
                     // Clear only the used gradients
                     for (int embIdx : touched) {
@@ -555,6 +557,15 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     
     /**
      * Set the gradient clipping norm for embeddings.
+     * 
+     * <p>This is applied per embedding vector, not globally. Recommended values:
+     * <ul>
+     *   <li>0.0 (default) - Rely on global gradient clipping only</li>
+     *   <li>1.0 - Conservative clipping for stable training</li>
+     *   <li>5.0 - Less restrictive, allows larger updates</li>
+     * </ul>
+     * 
+     * <p>Note: This is in addition to any global gradient clipping applied by NeuralNet.
      * 
      * @param norm maximum allowed L2 norm for embedding gradients (0 = disabled)
      */
@@ -932,6 +943,21 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         } else {
             SerializationService.writeWithTypeId(out, (Serializable) optimizer, version);
         }
+        
+        // Write embedding optimizer (for versions that support it)
+        if (embeddingOptimizer != optimizer) {
+            out.writeBoolean(true); // Has separate embedding optimizer
+            Integer embTypeId = SerializationService.getTypeId(embeddingOptimizer);
+            if (embTypeId == null) {
+                Serializable serializableOptimizer = (Serializable) embeddingOptimizer;
+                out.writeInt(serializableOptimizer.getTypeId());
+                serializableOptimizer.writeTo(out, version);
+            } else {
+                SerializationService.writeWithTypeId(out, (Serializable) embeddingOptimizer, version);
+            }
+        } else {
+            out.writeBoolean(false); // No separate embedding optimizer
+        }
     }
     
     @Override
@@ -1003,8 +1029,21 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         int optimizerTypeId = in.readInt();
         Optimizer optimizer = SerializationService.deserializeOptimizer(in, optimizerTypeId, version);
         
+        // Read embedding optimizer (if separate)
+        Optimizer embeddingOptimizer = optimizer;
+        boolean hasSeparateEmbeddingOptimizer = in.readBoolean();
+        if (hasSeparateEmbeddingOptimizer) {
+            int embOptTypeId = in.readInt();
+            embeddingOptimizer = SerializationService.deserializeOptimizer(in, embOptTypeId, version);
+        }
+        
         // Create layer
         MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        
+        // Override embedding optimizer if different from deserialization
+        if (hasSeparateEmbeddingOptimizer) {
+            layer.embeddingOptimizer = embeddingOptimizer;
+        }
         
         // Copy embedding data to layer
         for (int i = 0; i < numFeatures; i++) {
@@ -1100,5 +1139,6 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     public int getTypeId() {
         return SerializationConstants.TYPE_MIXED_FEATURE_INPUT_LAYER;
     }
+    
     
 }

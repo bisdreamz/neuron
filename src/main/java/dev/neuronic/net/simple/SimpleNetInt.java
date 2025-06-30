@@ -1,15 +1,12 @@
 package dev.neuronic.net.simple;
 
-import dev.neuronic.net.NeuralNet;
 import dev.neuronic.net.Dictionary;
+import dev.neuronic.net.NeuralNet;
 import dev.neuronic.net.common.Utils;
-import dev.neuronic.net.layers.Feature;
 import dev.neuronic.net.layers.Layer;
-import dev.neuronic.net.layers.MixedFeatureInputLayer;
-import dev.neuronic.net.serialization.SerializationConstants;
-import dev.neuronic.net.training.BatchTrainer;
 import dev.neuronic.net.losses.CrossEntropyLoss;
 import dev.neuronic.net.losses.Loss;
+import dev.neuronic.net.serialization.SerializationConstants;
 import dev.neuronic.net.training.MetricsLogger;
 import dev.neuronic.net.training.TrainingMetrics;
 import dev.neuronic.net.training.ValidationEvaluator;
@@ -19,7 +16,6 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Type-safe neural network wrapper for integer classification (e.g., MNIST digit recognition).
@@ -89,7 +85,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      */
     SimpleNetInt(NeuralNet underlyingNet, Set<String> outputNames) {
         super(underlyingNet, outputNames);
-        this.labelDictionary = new Dictionary();
+        this.labelDictionary = new Dictionary(underlyingNet.getOutputLayer().getOutputSize());
         // Feature mapping initialization is now handled in the base class
     }
     
@@ -428,7 +424,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param inputs list of input data (same format as single train())
      * @param labels list of integer labels corresponding to inputs
      */
-    public void trainBatch(java.util.List<Object> inputs, java.util.List<Integer> labels) {
+    public void trainBatch(List<Object> inputs, List<Integer> labels) {
         if (inputs.size() != labels.size()) {
             throw new IllegalArgumentException("Input and label lists must have the same size");
         }
@@ -465,8 +461,8 @@ public class SimpleNetInt extends SimpleNet<Integer> {
         }
         
         // Convert to lists and use the list-based method
-        java.util.List<Object> inputList = java.util.Arrays.asList(inputs);
-        java.util.List<Integer> labelList = new java.util.ArrayList<>(labels.length);
+        List<Object> inputList = Arrays.asList(inputs);
+        List<Integer> labelList = new ArrayList<>(labels.length);
         for (int label : labels) {
             labelList.add(label);
         }
@@ -495,7 +491,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param inputs list of Map inputs with feature names to values
      * @param labels list of integer labels corresponding to inputs
      */
-    public void trainBatchMaps(java.util.List<Map<String, Object>> inputs, java.util.List<Integer> labels) {
+    public void trainBatchMaps(List<Map<String, Object>> inputs, List<Integer> labels) {
         if (inputs.size() != labels.size()) {
             throw new IllegalArgumentException("Input and label lists must have the same size");
         }
@@ -546,7 +542,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param inputs list of float array inputs
      * @param labels list of integer labels corresponding to inputs
      */
-    public void trainBatchArrays(java.util.List<float[]> inputs, java.util.List<Integer> labels) {
+    public void trainBatchArrays(List<float[]> inputs, List<Integer> labels) {
         if (inputs.size() != labels.size()) {
             throw new IllegalArgumentException("Input and label lists must have the same size");
         }
@@ -577,9 +573,9 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param inputs list of input data
      * @return list of predicted integer class labels
      */
-    public java.util.List<Integer> predictBatch(java.util.List<Object> inputs) {
+    public List<Integer> predictBatch(List<Object> inputs) {
         if (inputs.isEmpty()) {
-            return new java.util.ArrayList<>();
+            return new ArrayList<>();
         }
         
         // Convert inputs
@@ -592,7 +588,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
         float[][] batchOutputs = underlyingNet.predictBatch(batchInputs);
         
         // Convert to class predictions
-        java.util.List<Integer> predictions = new java.util.ArrayList<>(batchOutputs.length);
+        List<Integer> predictions = new ArrayList<>(batchOutputs.length);
         for (float[] output : batchOutputs) {
             int predictedClassIndex = Utils.argmax(output);
             Object originalLabel = labelDictionary.getValue(predictedClassIndex);
@@ -609,7 +605,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @return array of predicted integer class labels
      */
     public int[] predictBatchInt(Object[] inputs) {
-        java.util.List<Integer> predictions = predictBatch(java.util.Arrays.asList(inputs));
+        List<Integer> predictions = predictBatch(Arrays.asList(inputs));
         return predictions.stream().mapToInt(Integer::intValue).toArray();
     }
     
@@ -644,7 +640,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param metrics metrics collector for training progress
      * @return final validation accuracy
      */
-    public double trainBulk(java.util.List<Object> inputs, java.util.List<Integer> labels, 
+    public double trainBulk(List<Object> inputs, List<Integer> labels, 
                            int epochs, TrainingMetrics metrics) {
         return trainBulk(inputs, labels, epochs, metrics, 
                         MetricsLogger.ProgressCallbacks.printEvery(1));
@@ -660,7 +656,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param progressCallback callback for training progress updates (null for silent)
      * @return final validation accuracy
      */
-    public double trainBulk(java.util.List<Object> inputs, java.util.List<Integer> labels, 
+    public double trainBulk(List<Object> inputs, List<Integer> labels, 
                            int epochs, TrainingMetrics metrics,
                            MetricsLogger.ProgressCallback progressCallback) {
         return trainBulk(inputs, labels, epochs, 0.8, metrics, progressCallback);
@@ -677,7 +673,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param progressCallback callback for training progress updates (null for silent)
      * @return final validation accuracy
      */
-    public double trainBulk(java.util.List<Object> inputs, java.util.List<Integer> labels, 
+    public double trainBulk(List<Object> inputs, List<Integer> labels, 
                            int epochs, double trainRatio, TrainingMetrics metrics,
                            MetricsLogger.ProgressCallback progressCallback) {
         
@@ -714,15 +710,16 @@ public class SimpleNetInt extends SimpleNet<Integer> {
             double trainingLoss = 0.0;
             int trainingCorrect = 0;
             
-            java.util.List<Object> epochInputs = trainData.getInputs();
-            java.util.List<Integer> epochLabels = trainData.getOutputs();
+            List<Object> epochInputs = trainData.getInputs();
+            List<Integer> epochLabels = trainData.getOutputs();
             
             // Shuffle training data each epoch
-            java.util.List<Integer> indices = new java.util.ArrayList<>();
+            List<Integer> indices = new ArrayList<>();
             for (int i = 0; i < epochInputs.size(); i++) {
                 indices.add(i);
             }
-            java.util.Collections.shuffle(indices);
+
+            Collections.shuffle(indices);
             
             // Train on shuffled data
             for (int idx : indices) {
@@ -788,7 +785,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @return validation results with accuracy and other metrics
      */
     public ValidationEvaluator.ValidationResults evaluate(
-            java.util.List<Object> testInputs, java.util.List<Integer> testLabels) {
+            List<Object> testInputs, List<Integer> testLabels) {
         
         if (testInputs.size() != testLabels.size()) {
             throw new IllegalArgumentException("Test input and label lists must have the same size");
@@ -808,17 +805,17 @@ public class SimpleNetInt extends SimpleNet<Integer> {
      * @param labels true labels
      * @return map with accuracy, per-class accuracy, and other metrics
      */
-    public java.util.Map<String, Double> getPerformanceMetrics(java.util.List<Object> inputs, 
-                                                              java.util.List<Integer> labels) {
+    public Map<String, Double> getPerformanceMetrics(List<Object> inputs, 
+                                                              List<Integer> labels) {
         if (inputs.size() != labels.size()) {
             throw new IllegalArgumentException("Input and label lists must have the same size");
         }
         
-        java.util.Map<String, Double> metrics = new java.util.HashMap<>();
+        Map<String, Double> metrics = new HashMap<>();
         
         int correct = 0;
-        java.util.Map<Integer, Integer> classCorrect = new java.util.HashMap<>();
-        java.util.Map<Integer, Integer> classTotal = new java.util.HashMap<>();
+        Map<Integer, Integer> classCorrect = new HashMap<>();
+        Map<Integer, Integer> classTotal = new HashMap<>();
         
         for (int i = 0; i < inputs.size(); i++) {
             Object input = inputs.get(i);
@@ -836,7 +833,7 @@ public class SimpleNetInt extends SimpleNet<Integer> {
         metrics.put("accuracy", (double) correct / inputs.size());
         
         // Per-class accuracy
-        for (java.util.Map.Entry<Integer, Integer> entry : classTotal.entrySet()) {
+        for (Map.Entry<Integer, Integer> entry : classTotal.entrySet()) {
             Integer classLabel = entry.getKey();
             Integer total = entry.getValue();
             Integer correctForClass = classCorrect.getOrDefault(classLabel, 0);
@@ -977,13 +974,28 @@ public class SimpleNetInt extends SimpleNet<Integer> {
             int numDictionaries = in.readInt();
             for (int i = 0; i < numDictionaries; i++) {
                 String featureName = in.readUTF();
-                Dictionary dict = Dictionary.readFrom(in);
+                
+                // Find the feature index and get maxBounds
+                int featureIndex = -1;
+                for (int j = 0; j < simpleNet.featureNames.length; j++) {
+                    if (simpleNet.featureNames[j].equals(featureName)) {
+                        featureIndex = j;
+                        break;
+                    }
+                }
+                if (featureIndex == -1) {
+                    throw new IOException("Unknown feature name in serialized data: " + featureName);
+                }
+                
+                int maxBounds = simpleNet.features[featureIndex].getMaxUniqueValues();
+                Dictionary dict = Dictionary.readFrom(in, maxBounds);
                 simpleNet.featureDictionaries.put(featureName, dict);
             }
         }
         
         // Read label dictionary and replace the empty one
-        Dictionary loadedLabelDict = Dictionary.readFrom(in);
+        int labelMaxBounds = simpleNet.underlyingNet.getOutputLayer().getOutputSize();
+        Dictionary loadedLabelDict = Dictionary.readFrom(in, labelMaxBounds);
         // Since labelDictionary is final, we need to copy its contents
         for (int i = 0; i < loadedLabelDict.size(); i++) {
             Object value = loadedLabelDict.getValue(i);

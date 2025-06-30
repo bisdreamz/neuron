@@ -5,24 +5,21 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Thread-safe dictionary with LRU (Least Recently Used) eviction policy.
  * 
- * <p>When the dictionary reaches its maximum capacity, the least recently accessed
- * entries are evicted to make room for new values. This is perfect for online
- * learning scenarios where the vocabulary evolves over time.
+ * <p>Maintains a fixed maximum size with automatic eviction of least recently used entries.
+ * Uses sequential indexing with index reuse for evicted entries.
  * 
  * <p><b>Key features:</b>
  * <ul>
- *   <li>Fixed maximum size with automatic eviction</li>
+ *   <li>Fixed maximum size with automatic LRU eviction</li>
  *   <li>Thread-safe for concurrent access</li>
  *   <li>Maintains access order for LRU eviction</li>
  *   <li>Bi-directional lookup (value→index, index→value)</li>
- *   <li>Reuses indices from evicted entries to stay within bounds</li>
+ *   <li>Index reuse for evicted entries to stay within bounds</li>
  * </ul>
  * 
  * <p><b>When to use LRUDictionary:</b>
@@ -37,35 +34,34 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * <ul>
  *   <li>Slightly higher overhead than regular Dictionary due to access tracking</li>
  *   <li>Previously seen values may be forgotten if evicted</li>
- *   <li>Not suitable when all historical values must be preserved</li>
  * </ul>
  */
 public class LRUDictionary extends Dictionary {
     
     private final int maxSize;
     private final LinkedHashMap<Object, Integer> lruMap;
-    private final ConcurrentHashMap<Integer, Object> indexToValue;
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     
     /**
-     * Create an LRU dictionary with specified maximum size.
+     * Create an LRU dictionary with specified maximum size and index bounds.
      * 
      * @param maxSize maximum number of entries before eviction begins
-     * @throws IllegalArgumentException if maxSize is not positive
+     * @param maxBounds maximum index value allowed (exclusive) 
+     * @throws IllegalArgumentException if parameters are not positive
      */
-    public LRUDictionary(int maxSize) {
+    public LRUDictionary(int maxSize, int maxBounds) {
+        super(maxBounds);
         if (maxSize <= 0)
             throw new IllegalArgumentException("Max size must be positive: " + maxSize);
             
         this.maxSize = maxSize;
-        this.indexToValue = new ConcurrentHashMap<>();
         
         // Create LinkedHashMap with access order (true = access-order, false = insertion-order)
         this.lruMap = new LinkedHashMap<Object, Integer>(16, 0.75f, true);
     }
     
     /**
-     * Get the index for a value, creating a new index if value is unknown.
+     * Get the index for a value, creating an index if value is unknown.
      * Updates access order for LRU tracking.
      * 
      * @param value the value to look up
@@ -85,7 +81,7 @@ public class LRUDictionary extends Dictionary {
             lock.readLock().unlock();
         }
         
-        // Need to add new value
+        // Need to add new value with distributed indexing
         lock.writeLock().lock();
         try {
             // Double-check after acquiring write lock
@@ -97,25 +93,35 @@ public class LRUDictionary extends Dictionary {
             if (lruMap.size() >= maxSize) {
                 // Find the least recently used entry
                 Map.Entry<Object, Integer> eldest = lruMap.entrySet().iterator().next();
-                lruMap.remove(eldest.getKey());
-                indexToValue.remove(eldest.getValue());
+                Object evictedValue = eldest.getKey();
+                int evictedIndex = eldest.getValue();
                 
-                // Reuse the evicted index
-                int reusedIndex = eldest.getValue();
-                lruMap.put(value, reusedIndex);
-                indexToValue.put(reusedIndex, value);
-                return reusedIndex;
+                lruMap.remove(evictedValue);
+                // Remove from parent Dictionary data structures
+                super.valueToIndex.remove(evictedValue);
+                super.indexToValue.remove(evictedIndex);
+                
+                // Reuse the evicted index for the new value
+                lruMap.put(value, evictedIndex);
+                // Update parent Dictionary data structures
+                super.valueToIndex.put(value, evictedIndex);
+                super.indexToValue.put(evictedIndex, value);
+                return evictedIndex;
             } else {
-                // Still have room, use next sequential index
+                // Still have room, use sequential index
                 int newIndex = lruMap.size();
+                
                 lruMap.put(value, newIndex);
-                indexToValue.put(newIndex, value);
+                // Update parent Dictionary data structures
+                super.valueToIndex.put(value, newIndex);
+                super.indexToValue.put(newIndex, value);
                 return newIndex;
             }
         } finally {
             lock.writeLock().unlock();
         }
     }
+    
     
     /**
      * Get the value for an index.
@@ -126,7 +132,7 @@ public class LRUDictionary extends Dictionary {
      */
     @Override
     public Object getValue(int index) {
-        return indexToValue.get(index);
+        return super.getValue(index);
     }
     
     /**
@@ -148,7 +154,7 @@ public class LRUDictionary extends Dictionary {
      */
     @Override
     public boolean containsIndex(int index) {
-        return indexToValue.containsKey(index);
+        return super.containsIndex(index);
     }
     
     /**
@@ -195,7 +201,8 @@ public class LRUDictionary extends Dictionary {
         lock.writeLock().lock();
         try {
             lruMap.clear();
-            indexToValue.clear();
+            // Clear parent class data structures
+            super.clear();
         } finally {
             lock.writeLock().unlock();
         }
@@ -225,11 +232,11 @@ public class LRUDictionary extends Dictionary {
      * Deserialize an LRU dictionary from a stream.
      * Note: Access order starts fresh after deserialization.
      */
-    public static LRUDictionary readFrom(DataInputStream in) throws IOException {
+    public static LRUDictionary readFrom(DataInputStream in, int maxBounds) throws IOException {
         int maxSize = in.readInt();
         int size = in.readInt();
         
-        LRUDictionary dict = new LRUDictionary(maxSize);
+        LRUDictionary dict = new LRUDictionary(maxSize, maxBounds);
         
         for (int i = 0; i < size; i++) {
             String valueStr = in.readUTF();
@@ -240,6 +247,7 @@ public class LRUDictionary extends Dictionary {
             dict.lock.writeLock().lock();
             try {
                 dict.lruMap.put(value, index);
+                dict.valueToIndex.put(value, index);
                 dict.indexToValue.put(index, value);
             } finally {
                 dict.lock.writeLock().unlock();

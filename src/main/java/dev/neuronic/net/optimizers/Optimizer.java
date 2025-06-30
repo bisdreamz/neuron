@@ -77,5 +77,24 @@ public interface Optimizer {
      * @param learningRate the new learning rate to use
      */
     void setLearningRate(float learningRate);
+    
+    /**
+     * Create a variant of this optimizer suitable for embeddings.
+     * 
+     * <p>Embeddings have different optimization needs than dense layers:
+     * <ul>
+     *   <li>Reduced or no weight decay (sparse features shouldn't be pulled to zero)</li>
+     *   <li>Potentially different learning rates</li>
+     *   <li>Different gradient clipping thresholds</li>
+     * </ul>
+     * 
+     * <p>Default implementation returns the same optimizer (no changes).
+     * Optimizers like AdamW should override to reduce weight decay.
+     * 
+     * @return an optimizer configured for embedding parameters
+     */
+    default Optimizer forEmbeddings() {
+        return this;
+    }
 }
 

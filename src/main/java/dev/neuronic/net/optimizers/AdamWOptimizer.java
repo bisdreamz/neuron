@@ -68,6 +68,14 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li><b>0.01:</b> Good default for most cases</li>
  *   <li><b>0.1:</b> Strong regularization for small models or limited data</li>
  * </ul>
+ * 
+ * <p><b>Automatic Embedding Optimization:</b>
+ * When used with embedding layers, AdamW automatically adjusts parameters:
+ * <ul>
+ *   <li><b>5x higher learning rate:</b> Compensates for sparse updates on high-cardinality features</li>
+ *   <li><b>10x less weight decay:</b> Prevents rare embeddings from being zeroed out</li>
+ * </ul>
+ * This follows best practices from Google, Facebook, and modern RecSys literature.
  */
 public class AdamWOptimizer implements Optimizer, Serializable {
 
@@ -326,5 +334,17 @@ public class AdamWOptimizer implements Optimizer, Serializable {
         if (learningRate <= 0)
             throw new IllegalArgumentException("Learning rate must be positive: " + learningRate);
         this.learningRate = learningRate;
+    }
+    
+    @Override
+    public Optimizer forEmbeddings() {
+        // For embeddings: 10x less weight decay, 5x higher learning rate
+        // High-cardinality features need higher LR due to sparse updates
+        if (weightDecay > 0 || learningRate > 0) {
+            float embeddingDecay = weightDecay * 0.1f;  // Less regularization
+            float embeddingLR = learningRate * 5.0f;    // Faster learning for sparse features
+            return new AdamWOptimizer(embeddingLR, beta1, beta2, epsilon, embeddingDecay);
+        }
+        return this;
     }
 }

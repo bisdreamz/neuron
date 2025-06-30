@@ -114,9 +114,9 @@ class MixedFeatureInputLayerGradientTest {
         // Compute change magnitude
         float changeMagnitude = computeEmbeddingChange(embedBefore, embedAfter);
         
-        // With clipping at 1.0 and LR 1.0, change should be bounded
-        // AdamW might produce exactly 2.0 due to its internal scaling
-        assertTrue(changeMagnitude <= 2.0f, 
+        // With clipping at 1.0 and LR 5.0 (embeddings get 5x LR), change should be bounded
+        // AdamW with embedding optimizer produces 5x larger updates
+        assertTrue(changeMagnitude <= 10.0f, 
             String.format("Gradient clipping should limit update magnitude, got %.4f", changeMagnitude));
         assertTrue(changeMagnitude > 0.1f, 
             String.format("Update should still happen despite clipping, got %.4f", changeMagnitude));

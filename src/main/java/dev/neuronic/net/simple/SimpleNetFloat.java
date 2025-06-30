@@ -518,7 +518,21 @@ public class SimpleNetFloat extends SimpleNet<Float> {
             int numDictionaries = in.readInt();
             for (int i = 0; i < numDictionaries; i++) {
                 String featureName = in.readUTF();
-                Dictionary dict = Dictionary.readFrom(in);
+                
+                // Find the feature index and get maxBounds
+                int featureIndex = -1;
+                for (int j = 0; j < simpleNet.featureNames.length; j++) {
+                    if (simpleNet.featureNames[j].equals(featureName)) {
+                        featureIndex = j;
+                        break;
+                    }
+                }
+                if (featureIndex == -1) {
+                    throw new IOException("Unknown feature name in serialized data: " + featureName);
+                }
+                
+                int maxBounds = simpleNet.features[featureIndex].getMaxUniqueValues();
+                Dictionary dict = Dictionary.readFrom(in, maxBounds);
                 simpleNet.featureDictionaries.put(featureName, dict);
             }
         }

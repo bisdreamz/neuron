@@ -224,6 +224,20 @@ public final class NetMath {
         WeightInitHe.compute(weights, fanIn);
     }
     
+    /**
+     * Initialize embeddings with uniform distribution.
+     * Recommended for embedding tables instead of He/Xavier initialization.
+     * 
+     * @param embeddings the embedding table to initialize
+     * @param min minimum value (inclusive)
+     * @param max maximum value (exclusive)
+     */
+    public static void embeddingInitUniform(float[][] embeddings, float min, float max) {
+        for (float[] row : embeddings) {
+            FastRandom.fillUniform(row, min, max);
+        }
+    }
+    
     // ========== BIAS INITIALIZATION ==========
     
     /**
