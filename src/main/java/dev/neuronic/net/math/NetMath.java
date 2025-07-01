@@ -223,6 +223,14 @@ public final class NetMath {
     public static void weightInitHe(float[][] weights, int fanIn) {
         WeightInitHe.compute(weights, fanIn);
     }
+
+    /**
+     * Initialize weights using He initialization plus uniform noise.
+     * Good for ReLU and variants.
+     */
+    public static void weightInitHePlusUniformNoise(float[][] weights, int fanIn, float noiseLevel) {
+        WeightInitHe.compute(weights, fanIn, noiseLevel);
+    }
     
     /**
      * Initialize embeddings with uniform distribution.

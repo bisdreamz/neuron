@@ -865,14 +865,14 @@ public final class Layers {
      * }</pre>
      */
     public static DenseLayer.DenseLayerSpec hiddenDenseLeakyRelu(int neurons) {
-        return DenseLayer.specChainable(neurons, LeakyReluActivator.createDefault(), WeightInitStrategy.HE);
+        return DenseLayer.specChainable(neurons, LeakyReluActivator.createDefault(), WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**
      * Leaky ReLU dense layer with default alpha=0.01.
      */
     public static Layer.Spec hiddenDenseLeakyRelu(int neurons, Optimizer optimizer) {
-        return hiddenDense(neurons, LeakyReluActivator.createDefault(), optimizer, WeightInitStrategy.HE);
+        return hiddenDense(neurons, LeakyReluActivator.createDefault(), optimizer, WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**
@@ -882,14 +882,14 @@ public final class Layers {
      * @param alpha negative slope (typically 0.01 to 0.3)
      */
     public static DenseLayer.DenseLayerSpec hiddenDenseLeakyRelu(int neurons, float alpha) {
-        return DenseLayer.specChainable(neurons, LeakyReluActivator.create(alpha), WeightInitStrategy.HE);
+        return DenseLayer.specChainable(neurons, LeakyReluActivator.create(alpha), WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**
      * Leaky ReLU dense layer with custom alpha and optimizer.
      */
     public static Layer.Spec hiddenDenseLeakyRelu(int neurons, float alpha, Optimizer optimizer) {
-        return hiddenDense(neurons, LeakyReluActivator.create(alpha), optimizer, WeightInitStrategy.HE);
+        return hiddenDense(neurons, LeakyReluActivator.create(alpha), optimizer, WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**

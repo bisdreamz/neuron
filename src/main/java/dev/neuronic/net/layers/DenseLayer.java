@@ -58,6 +58,7 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         switch (initStrategy) {
             case XAVIER -> NetMath.weightInitXavier(weights, inputs, neurons);
             case HE -> NetMath.weightInitHe(weights, inputs);
+            case HE_PLUS_UNIFORM_NOISE -> NetMath.weightInitHePlusUniformNoise(weights, inputs, 0.01f);
         }
         NetMath.biasInit(biases, 0.0f);
     }

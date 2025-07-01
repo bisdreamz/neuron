@@ -180,7 +180,7 @@ public class RealisticCPMPredictionTest {
                 target = rand.nextFloat() < 0.8f ? 0.0f : 0.01f + rand.nextFloat() * 0.09f;
                 negativeSamples++;
             }
-            
+
             model.train(input, target);
             
             // Evaluate periodically

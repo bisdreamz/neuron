@@ -139,32 +139,33 @@ public class AdamWOptimizer implements Optimizer, Serializable {
     
     
     @Override
-    public void optimize(float[][] weights, float[] biases, float[][] weightGradients, float[] biasGradients) {
-        // Get or create state for this layer (identified by weights reference)
-        AdamWState state = layerStates.computeIfAbsent(weights, k -> new AdamWState(weights, biases));
-        
-        // Increment time step atomically - no synchronization needed
-        long currentTimeStep = state.timeStep.incrementAndGet();
-        
-        // Use the sequential optimization path
-        sequentialOptimize(weights, biases, weightGradients, biasGradients, state, currentTimeStep);
-    }
-    
-    @Override
-    public void optimize(float[][] weights, float[] biases, float[][] weightGradients, 
+    public void optimize(Object stateKey, float[][] weights, float[] biases, float[][] weightGradients,
                         float[] biasGradients, ExecutorService executor) {
-        // Get or create state for this layer
-        AdamWState state = layerStates.computeIfAbsent(weights, k -> new AdamWState(weights, biases));
+        // Get or create state for this layer using the stable stateKey
+        AdamWState state = layerStates.computeIfAbsent(stateKey, k -> new AdamWState(weights, biases));
 
-        // Increment time step atomically - no synchronization needed
+        // Increment time step atomically
         long currentTimeStep = state.timeStep.incrementAndGet();
 
-        // Check if we should parallelize weight updates across rows
-        if (Parallelization.shouldParallelize(weights.length, executor)) {
+        // Check if we should parallelize
+        if (executor != null && Parallelization.shouldParallelize(weights.length, executor)) {
             parallelOptimize(weights, biases, weightGradients, biasGradients, state, currentTimeStep, executor);
         } else {
             sequentialOptimize(weights, biases, weightGradients, biasGradients, state, currentTimeStep);
         }
+    }
+
+    @Override
+    public void optimize(float[][] weights, float[] biases, float[][] weightGradients, float[] biasGradients) {
+        // Fallback for dense layers: the weights array itself is the stable key
+        optimize(weights, weights, biases, weightGradients, biasGradients, null);
+    }
+
+    @Override
+    public void optimize(float[][] weights, float[] biases, float[][] weightGradients, 
+                        float[] biasGradients, ExecutorService executor) {
+        // Fallback for dense layers: the weights array itself is the stable key
+        optimize(weights, weights, biases, weightGradients, biasGradients, executor);
     }
     
     /**
@@ -334,6 +335,55 @@ public class AdamWOptimizer implements Optimizer, Serializable {
         if (learningRate <= 0)
             throw new IllegalArgumentException("Learning rate must be positive: " + learningRate);
         this.learningRate = learningRate;
+    }
+
+    @Override
+    public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
+                               float[][] gradients, ExecutorService executor) {
+        if (indicesToUpdate.length != gradients.length) {
+            throw new IllegalArgumentException(String.format(
+                "Mismatched inputs for sparse update: %d indices but %d gradients.",
+                indicesToUpdate.length, gradients.length));
+        }
+        if (indicesToUpdate.length == 0) {
+            return; // Nothing to do
+        }
+
+        // Get or create state for this layer using the stable stateKey.
+        // The state is created based on the full `allWeights` table.
+        AdamWState state = layerStates.computeIfAbsent(stateKey, k -> new AdamWState(allWeights, new float[0]));
+
+        // Increment time step atomically
+        long currentTimeStep = state.timeStep.incrementAndGet();
+
+        // Pre-compute bias correction factors
+        float momentumCorrection = 1.0f - (float) Math.pow(beta1, currentTimeStep);
+        float velocityCorrection = 1.0f - (float) Math.pow(beta2, currentTimeStep);
+
+        // Loop through only the touched indices
+        for (int i = 0; i < indicesToUpdate.length; i++) {
+            int weightIndex = indicesToUpdate[i];
+            float[] gradient = gradients[i];
+
+            if (weightIndex < 0 || weightIndex >= allWeights.length) {
+                 System.err.printf("Optimizer Warning: Index %d is out of bounds for weights (len=%d). Skipping.\n",
+                                  weightIndex, allWeights.length);
+                continue;
+            }
+            if (weightIndex >= state.weightMomentum.length) {
+                System.err.printf("CRITICAL OPTIMIZER ERROR: Index %d is out of bounds for momentum state (len=%d). " +
+                                  "This likely means the stateKey is not being used correctly. Skipping update.\n",
+                                  weightIndex, state.weightMomentum.length);
+                continue;
+            }
+
+            // Perform the fused AdamW update on the specific row
+            FusedAdamWUpdate.compute(
+                    allWeights[weightIndex], gradient,
+                    state.weightMomentum[weightIndex], state.weightVelocity[weightIndex],
+                    beta1, beta2, learningRate, epsilon, weightDecay,
+                    momentumCorrection, velocityCorrection, true); // true = apply weight decay
+        }
     }
     
     @Override

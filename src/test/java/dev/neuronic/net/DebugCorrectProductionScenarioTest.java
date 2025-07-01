@@ -11,23 +11,18 @@ import org.junit.jupiter.api.Test;
 import java.util.*;
 
 /**
- * CORRECT production scenario matching what you actually do:
+ * DEBUG version of CorrectProductionScenarioTest using raw integer features.
  * 
- * 1. EVERY REQUEST gets penalty training (auction cost)
- * 2. ~50% of requests ALSO get bid training (some win, some get 0)
- * 3. Premium segments (5%) get MORE traffic AND higher bid rates
- * 4. Overall: 100,000 penalty trainings, ~50,000 bid trainings
+ * This test bypasses all feature processing (embeddings, one-hot encoding) by using
+ * raw integers as passthrough features. This helps isolate whether the learning
+ * failure is due to feature processing or the core neural network.
  * 
- * IMPORTANT: IT HAS BEEN PROVEN THAT THE PENALTY IS NOT THE CAUSE OF COLLAPSE!
- * - Test fails even when penalty training is completely removed
- * - Network still collapses to single value without any penalty
- * - The issue is in the neural network library, NOT the training pattern
- * DO NOT INVESTIGATE PENALTY AS A CAUSE - IT IS NOT THE ISSUE!
+ * Key differences:
+ * - All features are passthrough (no embeddings or one-hot)
+ * - Input values are raw integers cast to floats
+ * - Network learns directly from numeric feature values
  */
-public class CorrectProductionScenarioTest {
-    
-    // Toggle penalty training on/off
-    private static final boolean ENABLE_PENALTY_TRAINING = false; // Set to false to disable penalty
+public class DebugCorrectProductionScenarioTest {
     
     // Segment configuration
     private static final int numPremiumSegments = 100;  // 100 premium segments
@@ -46,8 +41,8 @@ public class CorrectProductionScenarioTest {
     private final Map<String, Float> segmentTotalTrainingValues = new HashMap<>();
     
     @Test
-    public void testCorrectProductionScenario() {
-        System.out.println("=== CORRECT PRODUCTION SCENARIO ===\n");
+    public void testDebugWithRawIntegers() {
+        System.out.println("=== DEBUG: RAW INTEGER FEATURES TEST ===\n");
         System.out.println("What actually happens:");
         System.out.println("1. EVERY request → penalty training");
         System.out.println("2. ~50% of requests → ALSO bid training");
@@ -79,28 +74,26 @@ public class CorrectProductionScenarioTest {
         initializeSegmentCPMs(initRand);
         
         System.out.printf("Batch size: %d, Penalty value: $%.5f\n", batchSize, penaltyValue);
-
-        // Using smaller vocabulary for one-hot to make the test runnable
-        int oneHotVocabSize = 1000;
+        System.out.println("Using raw integer passthrough features (no embeddings or one-hot)");
 
         Feature[] features = {
-            Feature.embedding(4, 1,"OS"), // Only using 4 OS values in the test
-            Feature.embedding(10000, 64, "ZONEID"),
-            Feature.embedding(5000, 32, "DOMAIN"),
-            Feature.embedding(2000, 16, "PUB")
-            //Feature.autoScale(0f, 20f, "BIDFLOOR")
+            Feature.autoNormalize( "OS"),      // Raw integer 0-3
+            Feature.autoNormalize("ZONEID"),  // Raw integer 0-9999
+            Feature.autoNormalize("DOMAIN"),  // Raw integer 0-4999
+            Feature.autoNormalize("PUB")      // Raw integer 0-1999
         };
 
-        Optimizer optimizer = new SgdOptimizer(0.001f); // Same as updated SerialCorrectProductionScenarioTest
-        //Optimizer optimizer = new AdamWOptimizer(0.001f, 0.0001f);
-        //Optimizer optimizer = new SgdOptimizer(0.000001f);
-        int steps = 10_000;  // Match SerialCorrectProductionScenarioTest
+        //Optimizer optimizer = new SgdOptimizer(0.001f); // Same as updated SerialCorrectProductionScenarioTest
+        Optimizer optimizer = new AdamWOptimizer(0.001f, 0.0001f);
 
         NeuralNet net = NeuralNet.newBuilder()
                 .setDefaultOptimizer(optimizer)
-                .layer(Layers.inputMixed(features))
+                .layer(Layers.inputAllNumerical(features.length, Arrays.stream(features).map(f -> f.getName()).toArray(String[]::new)))
+                .layer(Layers.hiddenDenseRelu(512))
+                .layer(Layers.hiddenDenseLeakyRelu(256))
+                .layer(Layers.hiddenDenseLeakyRelu(128))
                 .layer(Layers.hiddenDenseLeakyRelu(64))
-                .layer(Layers.hiddenDenseLeakyRelu(32))
+                .withGlobalGradientClipping(0f)
                 .output(Layers.outputLinearRegression(1));
 
         SimpleNetFloat model = SimpleNet.ofFloatRegression(net);
@@ -109,7 +102,7 @@ public class CorrectProductionScenarioTest {
 
         // Track actual CPM values by feature combination
         Map<String, List<Float>> featureComboCPMs = new HashMap<>();
-        Map<String, List<Float>> cpmByOS = new HashMap<>();
+        Map<Object, List<Float>> cpmByOS = new HashMap<>();
 
         // Tracking
         int totalPenaltyTrains = 0;
@@ -122,6 +115,7 @@ public class CorrectProductionScenarioTest {
         List<Map<String, Object>> batchInputs = new ArrayList<>();
         List<Float> batchTargets = new ArrayList<>();
 
+        int steps = 20000;  // Match SerialCorrectProductionScenarioTest
         System.out.println("Simulating " + steps + " requests (with smaller one-hot vocab)...");
 
         for (int step = 0; step < steps; step++) {
@@ -142,26 +136,24 @@ public class CorrectProductionScenarioTest {
             }
             segment = zoneId + "_" + domainId;
 
-            String os = "os_" + rand.nextInt(4);
+            int os = rand.nextInt(4);
+            int pubId = rand.nextInt(20);  // Only 20 publishers
             Map<String, Object> input = Map.of(
                 "OS", os,
-                "ZONEID", "zone_" + zoneId,
-                "DOMAIN", "domain_" + domainId,
-                "PUB", "pub_" + rand.nextInt(2000) // Random publishers
-                //"BIDFLOOR", 0.5f + rand.nextFloat()
+                "ZONEID", zoneId,
+                "DOMAIN", domainId,
+                "PUB", pubId
             );
             
-            // STEP 1: Conditionally train with penalty (auction cost)
-            if (ENABLE_PENALTY_TRAINING) {
-                batchInputs.add(input);
-                batchTargets.add(penaltyValue);
-                totalPenaltyTrains++;
-                segmentPenaltyCounts.merge(segment, 1, Integer::sum);
-                
-                // Track for true average calculation
-                segmentTotalTrainingCounts.merge(segment, 1, Integer::sum);
-                segmentTotalTrainingValues.merge(segment, penaltyValue, Float::sum);
-            }
+            // STEP 1: ALWAYS train with penalty (auction cost)
+            batchInputs.add(input);
+            batchTargets.add(penaltyValue);
+            totalPenaltyTrains++;
+            segmentPenaltyCounts.merge(segment, 1, Integer::sum);
+            
+            // Track for true average calculation
+            segmentTotalTrainingCounts.merge(segment, 1, Integer::sum);
+            segmentTotalTrainingValues.merge(segment, penaltyValue, Float::sum);
             
             // STEP 2: ~50% of requests also get bid training
             if (rand.nextFloat() < 0.5f) {
@@ -179,8 +171,7 @@ public class CorrectProductionScenarioTest {
                 }
                 
                 // Add bid training to batch
-                // Clone input if we already added penalty, otherwise use original
-                batchInputs.add(ENABLE_PENALTY_TRAINING ? new HashMap<>(input) : input);
+                batchInputs.add(new HashMap<>(input)); // Clone to avoid overwriting
                 batchTargets.add(bidValue);
                 totalBidTrains++;
                 segmentBidCounts.merge(segment, 1, Integer::sum);
@@ -211,32 +202,25 @@ public class CorrectProductionScenarioTest {
             }
             
             // Progress check
-            if (step > 0 && step % 1000 == 0) {
+            if (step > 0 && step % 100 == 0) {  // More frequent updates
                 System.out.printf("Step %d: %d penalties, %d bids (ratio %.1f:1)\n",
                     step, totalPenaltyTrains, totalBidTrains,
                     (float)totalPenaltyTrains / totalBidTrains);
                 
-                // Test some predictions
-//                float premiumPred = model.predictFloat(Map.of(
-//                    "OS", 0, "ZONEID", 10, "DOMAIN", 10, "PUB", 0, "BIDFLOOR", 1.0f));
-//                float regularPred = model.predictFloat(Map.of(
-//                    "OS", 0, "ZONEID", 5000, "DOMAIN", 1000, "PUB", 0, "BIDFLOOR", 1.0f));
+                // Test some predictions with raw integers
                 float premiumPred = model.predictFloat(Map.of(
-                        "OS", "os_0", "ZONEID", "zone_10", "DOMAIN", "domain_10", "PUB", "pub_10"));
+                        "OS", 0, "ZONEID", 10, "DOMAIN", 10, "PUB", 10));
                 float regularPred = model.predictFloat(Map.of(
-                        "OS", "os_0", "ZONEID", "zone_5000", "DOMAIN", "domain_0", "PUB", "pub_1500"));
+                        "OS", 0, "ZONEID", 5000, "DOMAIN", 0, "PUB", 1500));
                 
                 System.out.printf("  Premium: $%.3f, Regular: $%.3f\n", premiumPred, regularPred);
             }
         }
         
         // Final statistics
-        System.out.printf("\nFinal: %d penalty trains, %d bid trains", 
-            totalPenaltyTrains, totalBidTrains);
-        if (totalBidTrains > 0) {
-            System.out.printf(" (ratio %.1f:1)", (float)totalPenaltyTrains / totalBidTrains);
-        }
-        System.out.println();
+        System.out.printf("\nFinal: %d penalty trains, %d bid trains (ratio %.1f:1)\n",
+            totalPenaltyTrains, totalBidTrains,
+            (float)totalPenaltyTrains / totalBidTrains);
         
         // Print CPM histogram
         System.out.println("\nCPM Distribution Histogram:");
@@ -265,13 +249,12 @@ public class CorrectProductionScenarioTest {
         // Show CPM distribution by OS
         System.out.println("\nCPM Distribution by OS:");
         for (int i = 0; i < 4; i++) {
-            String osKey = "os_" + i;
-            List<Float> cpms = cpmByOS.get(osKey);
+            List<Float> cpms = cpmByOS.get(i);
             if (cpms != null && !cpms.isEmpty()) {
                 float avgCPM = cpms.stream().reduce(0f, Float::sum) / cpms.size();
                 float maxCPM = cpms.stream().max(Float::compare).orElse(0f);
-                System.out.printf("  %s: avg=$%.2f, max=$%.2f, count=%d\n", 
-                    osKey, avgCPM, maxCPM, cpms.size());
+                System.out.printf("  OS %d: avg=$%.2f, max=$%.2f, count=%d\n", 
+                    i, avgCPM, maxCPM, cpms.size());
             }
         }
         
@@ -316,7 +299,7 @@ public class CorrectProductionScenarioTest {
         for (int i = 0; i < 50; i++) {
             String segment = i + "_" + i;
             float pred = model.predictFloat(Map.of(
-                "OS", "os_0", "ZONEID", "zone_" + i, "DOMAIN", "domain_" + i, "PUB", "pub_" + i));
+                "OS", 0, "ZONEID", i, "DOMAIN", i, "PUB", i));
             premiumPreds.add(pred);
             
             // Calculate expected based on all training values (penalty + CPM)
@@ -331,7 +314,7 @@ public class CorrectProductionScenarioTest {
             int domainId = i % 5000;
             String segment = i + "_" + domainId;
             float pred = model.predictFloat(Map.of(
-                "OS", "os_0", "ZONEID", "zone_" + i, "DOMAIN", "domain_" + domainId, "PUB", "pub_" + (1000 + (i % 1000))));
+                "OS", 0, "ZONEID", i, "DOMAIN", domainId, "PUB", 1000 + (i % 1000)));
             regularPreds.add(pred);
             
             if (segmentTotalTrainingCounts.containsKey(segment)) {
@@ -498,10 +481,10 @@ public class CorrectProductionScenarioTest {
             // Test with different OS values to ensure distribution
             for (int os = 0; os < 4; os++) {
                 Map<String, Object> input = Map.of(
-                    "OS", "os_" + os,
-                    "ZONEID", "zone_" + zoneId,
-                    "DOMAIN", "domain_" + domainId,
-                    "PUB", "pub_" + (zoneId % 2000)
+                    "OS", os,
+                    "ZONEID", zoneId,
+                    "DOMAIN", domainId,
+                    "PUB", zoneId % 2000
                 );
                 
                 // Get the true expected value (average of all training values)
@@ -534,10 +517,10 @@ public class CorrectProductionScenarioTest {
             int domainId = Integer.parseInt(parts[1]);
             
             Map<String, Object> input = Map.of(
-                "OS", "os_" + testRand.nextInt(4),
-                "ZONEID", "zone_" + zoneId,
-                "DOMAIN", "domain_" + domainId,
-                "PUB", "pub_" + (zoneId % 2000)
+                "OS", testRand.nextInt(4),
+                "ZONEID", zoneId,
+                "DOMAIN", domainId,
+                "PUB", zoneId % 2000
             );
             
             // Get the true expected value (average of all training values)

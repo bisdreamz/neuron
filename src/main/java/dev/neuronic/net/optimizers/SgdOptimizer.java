@@ -103,4 +103,32 @@ public class SgdOptimizer implements Optimizer, Serializable {
     public void setLearningRate(float learningRate) {
         this.learningRate = learningRate;
     }
+
+    @Override
+    public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
+                               float[][] gradients, java.util.concurrent.ExecutorService executor) {
+        if (indicesToUpdate.length != gradients.length) {
+            throw new IllegalArgumentException(String.format(
+                "Mismatched inputs for sparse update: %d indices but %d gradients.",
+                indicesToUpdate.length, gradients.length));
+        }
+        if (indicesToUpdate.length == 0) {
+            return; // Nothing to do
+        }
+
+        // SGD is stateless, so we can just iterate and apply the updates.
+        // No need for a stateKey or complex state management.
+        for (int i = 0; i < indicesToUpdate.length; i++) {
+            int weightIndex = indicesToUpdate[i];
+            float[] gradient = gradients[i];
+
+            if (weightIndex < 0 || weightIndex >= allWeights.length) {
+                 System.err.printf("Optimizer Warning: Index %d is out of bounds for weights (len=%d). Skipping.\n",
+                                  weightIndex, allWeights.length);
+                continue;
+            }
+
+            NetMath.parameterUpdate(allWeights[weightIndex], gradient, learningRate);
+        }
+    }
 }

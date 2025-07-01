@@ -41,6 +41,12 @@ class DenseLayerTest {
             public void setLearningRate(float learningRate) {
                 // No-op for test
             }
+
+            @Override
+            public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
+                                       float[][] gradients, java.util.concurrent.ExecutorService executor) {
+                // No-op for test
+            }
         };
     }
     

@@ -523,6 +523,16 @@ public class Feature {
         };
     }
     
+    /**
+     * Check if this feature has learnable parameters that need optimization.
+     * 
+     * @return true for embedding features that have weight matrices to learn,
+     *         false for features that only transform input data
+     */
+    public boolean hasLearnableParameters() {
+        return type == Type.EMBEDDING || type == Type.HASHED_EMBEDDING;
+    }
+    
     @Override
     public String toString() {
         String base = switch (type) {

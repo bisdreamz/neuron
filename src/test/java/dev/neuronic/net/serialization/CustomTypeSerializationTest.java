@@ -109,6 +109,12 @@ class CustomTypeSerializationTest {
         }
         
         @Override
+        public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
+                                   float[][] gradients, ExecutorService executor) {
+            // No-op for this test optimizer
+        }
+
+        @Override
         public void setLearningRate(float learningRate) {
             // This is a test optimizer, learning rate is not used
         }
