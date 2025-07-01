@@ -15,7 +15,7 @@ public class SoftmaxCrossEntropyDebugTest {
         
         // Create input that will result in wrong prediction (class 2 instead of 0)
         float[] input = {-10.0f, -10.0f, 10.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         // Print forward pass results
         System.out.println("Input: [-10, -10, 10]");

@@ -62,7 +62,7 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         NetMath.biasInit(biases, 0.0f);
     }
 
-    public Layer.LayerContext forward(float[] input) {
+    public Layer.LayerContext forward(float[] input, boolean isTraining) {
         float[] preActivations = new float[neurons];
         NetMath.matrixPreActivationsColumnMajor(input, weights, biases, preActivations);
         

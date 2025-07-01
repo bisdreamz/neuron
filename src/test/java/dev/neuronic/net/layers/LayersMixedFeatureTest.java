@@ -156,7 +156,7 @@ class LayersMixedFeatureTest {
         
         // Test with realistic advertising data
         float[] adFeatures = {12345, 6789, 2, 5, 28.5f};
-        Layer.LayerContext context = inputLayer.forward(adFeatures);
+        Layer.LayerContext context = inputLayer.forward(adFeatures, false);
         
         float[] output = context.outputs();
         assertEquals(109, output.length);
@@ -269,7 +269,7 @@ class LayersMixedFeatureTest {
         
         // Forward pass
         float[] input = {5, 1, 2.5f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         assertEquals(8, context.outputs().length); // 4 + 3 + 1 = 8
         

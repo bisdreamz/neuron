@@ -113,7 +113,7 @@ class MixedFeatureInputLayerTest {
         
         // Test forward pass
         float[] input = {42.0f, 1.0f, 3.14f}; // embedding_id=42, category=1, value=3.14
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         float[] output = context.outputs();
         assertEquals(12, output.length); // 8 + 3 + 1 = 12
@@ -150,7 +150,7 @@ class MixedFeatureInputLayerTest {
         assertEquals(12, layer.getOutputSize()); // 3 * 4 = 12
         
         float[] input = {10.0f, 150.0f, 25.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         assertEquals(12, context.outputs().length);
         assertArrayEquals(input, context.inputs());
@@ -169,7 +169,7 @@ class MixedFeatureInputLayerTest {
         assertEquals(10, layer.getOutputSize()); // 3 + 5 + 2 = 10
         
         float[] input = {1.0f, 3.0f, 0.0f}; // categories 1, 3, 0
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         float[] output = context.outputs();
         assertEquals(10, output.length);
@@ -204,7 +204,7 @@ class MixedFeatureInputLayerTest {
         assertEquals(3, layer.getOutputSize());
         
         float[] input = {1.5f, -2.3f, 42.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         assertArrayEquals(input, context.outputs(), 1e-6f);
     }
@@ -221,38 +221,38 @@ class MixedFeatureInputLayerTest {
         
         // Test wrong input length
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{1.0f, 2.0f}); // Too few inputs
+            layer.forward(new float[]{1.0f, 2.0f}, false); // Too few inputs
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{1.0f, 2.0f, 3.0f, 4.0f}); // Too many inputs
+            layer.forward(new float[]{1.0f, 2.0f, 3.0f, 4.0f}, false); // Too many inputs
         });
         
         // Test out-of-range embedding values
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{-1.0f, 2.0f, 3.0f}); // Negative embedding ID
+            layer.forward(new float[]{-1.0f, 2.0f, 3.0f}, false); // Negative embedding ID
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{100.0f, 2.0f, 3.0f}); // Embedding ID >= vocab size
+            layer.forward(new float[]{100.0f, 2.0f, 3.0f}, false); // Embedding ID >= vocab size
         });
         
         // Test out-of-range one-hot values
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{50.0f, -1.0f, 3.0f}); // Negative category
+            layer.forward(new float[]{50.0f, -1.0f, 3.0f}, false); // Negative category
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{50.0f, 4.0f, 3.0f}); // Category >= num categories
+            layer.forward(new float[]{50.0f, 4.0f, 3.0f}, false); // Category >= num categories
         });
         
         // Test non-integer values for categorical features
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{50.5f, 2.0f, 3.0f}); // Non-integer embedding ID
+            layer.forward(new float[]{50.5f, 2.0f, 3.0f}, false); // Non-integer embedding ID
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{50.0f, 2.5f, 3.0f}); // Non-integer category
+            layer.forward(new float[]{50.0f, 2.5f, 3.0f}, false); // Non-integer category
         });
     }
 
@@ -268,7 +268,7 @@ class MixedFeatureInputLayerTest {
         
         // Forward pass
         float[] input = {5.0f, 1.0f, 2.5f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         // Store original embedding
         float[] originalEmbedding = layer.getEmbedding(0, 5);
@@ -367,7 +367,7 @@ class MixedFeatureInputLayerTest {
             28.5f      // user_age
         };
         
-        Layer.LayerContext context = layer.forward(adInput);
+        Layer.LayerContext context = layer.forward(adInput, false);
         float[] output = context.outputs();
         
         assertEquals(109, output.length);
@@ -557,7 +557,7 @@ class MixedFeatureInputLayerTest {
         for (int i = 0; i < 10; i++) {
             // Forward
             float[] input = {(float)(i % 100), (float)(i % 4), i * 0.1f};
-            Layer.LayerContext context = layer.forward(input);
+            Layer.LayerContext context = layer.forward(input, false);
             
             // Backward
             float[] gradient = new float[21]; // 16 + 4 + 1
@@ -595,7 +595,7 @@ class MixedFeatureInputLayerTest {
                     
                     for (int i = 0; i < iterations; i++) {
                         float[] input = {(float)((threadId * 10 + i) % 50), (float)(i % 3)};
-                        Layer.LayerContext context = layer.forward(input);
+                        Layer.LayerContext context = layer.forward(input, false);
                         
                         float[] gradient = new float[11]; // 8 + 3
                         Arrays.fill(gradient, 0.001f);

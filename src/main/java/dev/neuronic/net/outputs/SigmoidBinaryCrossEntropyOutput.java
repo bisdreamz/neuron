@@ -50,7 +50,7 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Allocate new arrays for LayerContext - never use ThreadLocal buffers in contexts
         float[] logit = new float[1];
         logit[0] = biases[0];

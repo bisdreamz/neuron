@@ -62,12 +62,12 @@ public class NeuralNet implements Serializable {
         this.globalGradientClipNorm = globalGradientClipNorm;
     }
 
-    private Layer.LayerContext[] predictStack(float[] input) {
+    private Layer.LayerContext[] predictStack(float[] input, boolean isTraining) {
         Layer.LayerContext[] contexts = contextBuffers.get();
 
         Layer.LayerContext output = null;
         for (int x = 0; x < layers.length; x++) {
-            output = layers[x].forward(output != null ? output.outputs() : input, executor);
+            output = layers[x].forward(output != null ? output.outputs() : input, isTraining);
             // Store the context directly - layers are responsible for their own buffer management
             contexts[x] = output;
         }
@@ -80,7 +80,7 @@ public class NeuralNet implements Serializable {
     }
 
     public float[] predict(float[] input) {
-        return getFinalLayerOutputs(predictStack(input));
+        return getFinalLayerOutputs(predictStack(input, false));
     }
 
     /**
@@ -195,7 +195,7 @@ public class NeuralNet implements Serializable {
         List<float[]> biasBufs = buffers.biasGradients;
 
         for (int i = 0; i < batchInputs.length; i++) {
-            Layer.LayerContext[] stack = predictStack(batchInputs[i]);
+            Layer.LayerContext[] stack = predictStack(batchInputs[i], true);
 
             // Start with output layer - compute loss gradient
             int outputIdx = layers.length - 1;
@@ -213,22 +213,7 @@ public class NeuralNet implements Serializable {
         // Apply gradients with single lock
         synchronized (this) {
             float scale = 1.0f / batchInputs.length;
-
-            if (globalGradientClipNorm > 0) {
-                applyGradientsWithClipping(weightBufs, biasBufs, scale, globalGradientClipNorm);
-            } else {
-                for (int i = 0; i < layers.length; i++) {
-                    if (weightBufs.get(i) != null) {
-                        // Scale and apply gradients
-                        NetMath.scaleMatrixInPlace(weightBufs.get(i), scale);
-                        NetMath.elementwiseScaleInPlace(biasBufs.get(i), scale);
-                        layers[i].applyGradients(weightBufs.get(i), biasBufs.get(i));
-                    } else if (layers[i].getGradientDimensions() == null) {
-                        // Layer manages its own gradients (e.g., MixedFeatureInputLayer)
-                        layers[i].applyGradients(null, null);
-                    }
-                }
-            }
+            applyGradients(weightBufs, biasBufs, scale);
         }
     }
 
@@ -236,7 +221,7 @@ public class NeuralNet implements Serializable {
     /**
      * Helper to accumulate gradients into buffers.
      */
-    private static void accumulateGradients(int idx, float[][] wG, float[] bG, 
+    private static void accumulateGradients(int idx, float[][] wG, float[] bG,
                                            List<float[][]> weightBufs, List<float[]> biasBufs) {
         if (wG != null && weightBufs.get(idx) != null) {
             float[][] accum = weightBufs.get(idx);
@@ -244,15 +229,14 @@ public class NeuralNet implements Serializable {
                 NetMath.elementwiseAdd(accum[row], wG[row], accum[row]);
             }
         }
-        
+
         if (bG != null && biasBufs.get(idx) != null) {
             NetMath.elementwiseAdd(biasBufs.get(idx), bG, biasBufs.get(idx));
         }
     }
-    
-    private void applyGradientsWithClipping(List<float[][]> weightBufs, List<float[]> biasBufs,
-                                            float scale, float maxNorm) {
-        // First scale by 1/batchSize to get average gradients
+
+    private void applyGradients(List<float[][]> weightBufs, List<float[]> biasBufs, float scale) {
+        // --- Step 1: Scale all regular gradients by 1/batchSize ---
         for (int i = 0; i < layers.length; i++) {
             if (weightBufs.get(i) != null) {
                 NetMath.scaleMatrixInPlace(weightBufs.get(i), scale);
@@ -260,25 +244,65 @@ public class NeuralNet implements Serializable {
             }
         }
 
-        // Convert to arrays for NetMath operations
-        float[][][] weights = weightBufs.toArray(new float[0][][]);
-        float[][] biases = biasBufs.toArray(new float[0][]);
-        
-        // Compute norm and clip if needed
-        float norm = NetMath.gradientNorm(weights, biases);
-        
-        if (norm > maxNorm) {
-            if (norm > maxNorm * 10)
-                System.err.printf("Warning: Large gradient norm %.2f clipped to %.2f\n", norm, maxNorm);
+        // --- Step 2: Compute global norm and apply clipping if needed ---
+        if (globalGradientClipNorm > 0) {
+            double totalNormSq = 0.0;
 
-            NetMath.clipGradientsByNorm(weights, biases, maxNorm);
+            // Calculate norm for regular layers
+            for (int i = 0; i < layers.length; i++) {
+                if (weightBufs.get(i) != null) {
+                    for (float[] row : weightBufs.get(i)) {
+                        for (float val : row) {
+                            totalNormSq += val * val;
+                        }
+                    }
+                    for (float val : biasBufs.get(i)) {
+                        totalNormSq += val * val;
+                    }
+                }
+            }
+
+            // Calculate norm for GradientProvider layers
+            for (Layer layer : layers) {
+                if (layer instanceof dev.neuronic.net.layers.GradientProvider) {
+                    dev.neuronic.net.layers.GradientProvider provider = (dev.neuronic.net.layers.GradientProvider) layer;
+                    List<float[][]> providerGradients = provider.getGradients();
+                    for (float[][] gradMatrix : providerGradients) {
+                        for (float[] gradRow : gradMatrix) {
+                            for (float val : gradRow) {
+                                totalNormSq += val * val;
+                            }
+                        }
+                    }
+                }
+            }
+
+            float globalNorm = (float) Math.sqrt(totalNormSq);
+
+            if (globalNorm > globalGradientClipNorm) {
+                if (globalNorm > globalGradientClipNorm * 10) {
+                    System.err.printf("Warning: Large gradient norm %.2f clipped to %.2f\n", globalNorm, globalGradientClipNorm);
+                }
+                float clipScale = globalGradientClipNorm / globalNorm;
+
+                // Apply clipping scale to all gradients
+                for (int i = 0; i < layers.length; i++) {
+                    if (layers[i] instanceof dev.neuronic.net.layers.GradientProvider) {
+                        ((dev.neuronic.net.layers.GradientProvider) layers[i]).applyClippingScale(clipScale);
+                    } else if (weightBufs.get(i) != null) {
+                        NetMath.scaleMatrixInPlace(weightBufs.get(i), clipScale);
+                        NetMath.elementwiseScaleInPlace(biasBufs.get(i), clipScale);
+                    }
+                }
+            }
         }
 
+        // --- Step 3: Apply the final (potentially clipped) gradients ---
         for (int i = 0; i < layers.length; i++) {
             if (weightBufs.get(i) != null) {
                 layers[i].applyGradients(weightBufs.get(i), biasBufs.get(i));
             } else if (layers[i].getGradientDimensions() == null) {
-                // Layer manages its own gradients (e.g., MixedFeatureInputLayer)
+                // This handles layers like MixedFeatureInputLayer which apply their own gradients
                 layers[i].applyGradients(null, null);
             }
         }

@@ -27,7 +27,7 @@ class SoftmaxCrossEntropyOutputTest {
         SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
         
         float[] input = {1.0f, 2.0f, 3.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         // Check that outputs sum to approximately 1.0 (softmax property)
         float sum = 0;
@@ -46,7 +46,7 @@ class SoftmaxCrossEntropyOutputTest {
         
         // Test with large inputs that could cause overflow
         float[] input = {100.0f, 101.0f, 102.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         // Should still be numerically stable
         float sum = 0;
@@ -65,7 +65,7 @@ class SoftmaxCrossEntropyOutputTest {
         SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
         
         float[] input = {1.0f, 2.0f, 3.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         // Create layer contexts for backward pass
         Layer.LayerContext[] stack = {context};
@@ -99,7 +99,7 @@ class SoftmaxCrossEntropyOutputTest {
         
         // Create input that will result in near-perfect prediction for class 0
         float[] input = {10.0f, -10.0f, -10.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         Layer.LayerContext[] stack = {context};
         float[] targets = {1.0f, 0.0f, 0.0f}; // Target is class 0
@@ -124,7 +124,7 @@ class SoftmaxCrossEntropyOutputTest {
         
         // Use any input - the gradient formula should hold regardless
         float[] input = {1.0f, 2.0f, 3.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         // Get softmax probabilities (whatever they are after W*input + b)
         float[] probabilities = context.outputs();
@@ -195,7 +195,7 @@ class SoftmaxCrossEntropyOutputTest {
         // Weights should be initialized (not all zeros)
         boolean hasNonZeroWeight = false;
         float[] testInput = {1.0f, 1.0f, 1.0f};
-        Layer.LayerContext context = layer.forward(testInput);
+        var context = layer.forward(testInput, false);
         
         // If all weights were zero, all outputs would be equal (1/3 each)
         float[] outputs = context.outputs();

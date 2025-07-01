@@ -118,7 +118,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Support dual mode: float arrays containing token IDs for bulk training
         if (input.length != sequenceLength) {
             throw new IllegalArgumentException(String.format(
@@ -154,7 +154,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
     
     @Override
     public LayerContext forward(float[] input, ExecutorService executor) {
-        return forward(input);
+        return forward(input, false);
     }
     
     /**

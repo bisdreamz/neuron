@@ -30,7 +30,7 @@ class InputEmbeddingLayerTest {
         
         // Test single token lookup
         float[] tokens = {1.0f};
-        Layer.LayerContext context = layer.forward(tokens);
+        Layer.LayerContext context = layer.forward(tokens, false);
         float[] output = context.outputs();
         
         assertArrayEquals(new float[]{0.0f, 1.0f, 0.0f}, output, 1e-6f,
@@ -38,7 +38,7 @@ class InputEmbeddingLayerTest {
         
         // Test multiple token lookup
         float[] multiTokens = {0.0f, 2.0f, 1.0f};
-        Layer.LayerContext multiContext = layer.forward(multiTokens);
+        Layer.LayerContext multiContext = layer.forward(multiTokens, false);
         float[] multiOutput = multiContext.outputs();
         
         float[] expected = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f};
@@ -57,7 +57,7 @@ class InputEmbeddingLayerTest {
         
         // Test sequence length scaling
         float[] tokens = {0.0f, 1.0f, 2.0f, 3.0f, 4.0f}; // 5 tokens
-        Layer.LayerContext context = layer.forward(tokens);
+        Layer.LayerContext context = layer.forward(tokens, false);
         assertEquals(5 * 50, context.outputs().length, 
             "Output should be seqLen * embeddingDim");
     }
@@ -76,7 +76,7 @@ class InputEmbeddingLayerTest {
         
         // Forward pass with repeated token
         float[] tokens = {0.0f, 1.0f, 0.0f}; // Token 0 appears twice
-        Layer.LayerContext context = layer.forward(tokens);
+        Layer.LayerContext context = layer.forward(tokens, false);
         
         // Backward pass with gradients
         float[] gradients = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f}; // 3 tokens * 2 dims
@@ -106,19 +106,19 @@ class InputEmbeddingLayerTest {
         
         // Test invalid token IDs
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{-1.0f}); // Negative token ID
+            layer.forward(new float[]{-1.0f}, false); // Negative token ID
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{5.0f}); // Token ID >= vocabSize
+            layer.forward(new float[]{5.0f}, false); // Token ID >= vocabSize
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{}); // Empty sequence
+            layer.forward(new float[]{}, false); // Empty sequence
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{1.5f}); // Non-integer token ID
+            layer.forward(new float[]{1.5f}, false); // Non-integer token ID
         });
         
         // Test invalid embedding operations
@@ -142,7 +142,7 @@ class InputEmbeddingLayerTest {
             tokens[i] = i % 1000; // Valid token IDs
         }
         
-        Layer.LayerContext context = layer.forward(tokens);
+        Layer.LayerContext context = layer.forward(tokens, false);
         assertEquals(600 * 128, context.outputs().length,
             "Should handle large sequences correctly");
     }
@@ -160,7 +160,7 @@ class InputEmbeddingLayerTest {
         
         // Test forward pass
         float[] tokens = {1.0f, 3.0f, 0.0f};
-        float[] originalOutput = original.forward(tokens).outputs();
+        float[] originalOutput = original.forward(tokens, false).outputs();
         
         // Serialize
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -186,7 +186,7 @@ class InputEmbeddingLayerTest {
         }
         
         // Test forward pass equivalence
-        float[] deserializedOutput = deserialized.forward(tokens).outputs();
+        float[] deserializedOutput = deserialized.forward(tokens, false).outputs();
         assertArrayEquals(originalOutput, deserializedOutput, 1e-6f,
             "Forward pass should be identical after serialization");
     }

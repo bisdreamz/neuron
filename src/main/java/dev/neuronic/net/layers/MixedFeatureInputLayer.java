@@ -62,7 +62,7 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * float[] output = context.outputs(); // [64 + 32 + 4 + 8 + 1 + 1 + 1] = 111-dimensional feature vector
  * }</pre>
  */
-public class MixedFeatureInputLayer implements Layer, Serializable {
+public class MixedFeatureInputLayer implements Layer, Serializable, GradientProvider {
     
     private final Optimizer optimizer;
     private Optimizer embeddingOptimizer; // Optimizer for embeddings (may be same as optimizer)
@@ -85,7 +85,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     }
     
     // Gradient clipping for embeddings
-    private float embeddingGradientClipNorm = 0.0f; // 0 = disabled
+    // private float embeddingGradientClipNorm = 0.0f; // 0 = disabled - REMOVED in favor of global clipping
     
     
     // Thread-local gradient accumulation to avoid race conditions
@@ -202,7 +202,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Comprehensive input validation with helpful error messages
         if (input == null)
             throw new IllegalArgumentException("Input array cannot be null");
@@ -326,7 +326,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     @Override
     public LayerContext forward(float[] input, ExecutorService executor) {
         // Feature lookups and one-hot encoding are not parallelizable due to simple operations
-        return forward(input);
+        return forward(input, false);
     }
     
     @Override
@@ -477,9 +477,6 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     // Get the accumulated gradients from the stored buffer
                     float[][] embeddingGradients = accumulator.gradientBuffers[i][0]; // [0] because pool shape is [1][vocab][dim]
                     
-                    // Scale gradients by 1/batchSize for proper averaging
-                    float batchScale = 1.0f / accumulator.batchSampleCount;
-                    
                     // Get touched indices for this feature
                     Set<Integer> touched = accumulator.touchedIndices.get(i);
                     if (touched == null || touched.isEmpty()) {
@@ -490,26 +487,21 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     for (int idx : touched) {
                         float[] gradRow = embeddingGradients[idx];
                         
-                        // Scale by batch size
-                        for (int j = 0; j < gradRow.length; j++) {
-                            gradRow[j] *= batchScale;
-                        }
-                        
                         // Apply gradient clipping if enabled (per embedding)
-                        if (embeddingGradientClipNorm > 0) {
-                            float norm = 0.0f;
-                            for (float g : gradRow) {
-                                norm += g * g;
-                            }
-                            norm = (float) Math.sqrt(norm);
+                        // if (embeddingGradientClipNorm > 0) {
+                        //     float norm = 0.0f;
+                        //     for (float g : gradRow) {
+                        //         norm += g * g;
+                        //     }
+                        //     norm = (float) Math.sqrt(norm);
                             
-                            if (norm > embeddingGradientClipNorm) {
-                                float scale = embeddingGradientClipNorm / norm;
-                                for (int j = 0; j < gradRow.length; j++) {
-                                    gradRow[j] *= scale;
-                                }
-                            }
-                        }
+                        //     if (norm > embeddingGradientClipNorm) {
+                        //         float scale = embeddingGradientClipNorm / norm;
+                        //         for (int j = 0; j < gradRow.length; j++) {
+                        //             gradRow[j] *= scale;
+                        //         }
+                        //     }
+                        // }
                     }
                     
                     // Update only the touched embeddings using optimizer
@@ -517,10 +509,16 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     int numTouched = touched.size();
                     float[][] touchedEmbeddings = new float[numTouched][];
                     float[][] touchedGradients = new float[numTouched][];
+                    float batchScale = 1.0f / accumulator.batchSampleCount;
                     int idx = 0;
                     for (int embIdx : touched) {
                         touchedEmbeddings[idx] = embeddings[i][embIdx];
-                        touchedGradients[idx] = embeddingGradients[embIdx];
+                        // Scale gradients by 1/batchSize before passing to optimizer
+                        float[] scaledGrad = new float[embeddingGradients[embIdx].length];
+                        for (int j = 0; j < scaledGrad.length; j++) {
+                            scaledGrad[j] = embeddingGradients[embIdx][j] * batchScale;
+                        }
+                        touchedGradients[idx] = scaledGrad;
                         idx++;
                     }
                     
@@ -531,9 +529,6 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     for (int embIdx : touched) {
                         Arrays.fill(embeddingGradients[embIdx], 0.0f);
                     }
-                    
-                    // Clear touched set for this feature
-                    touched.clear();
                     } catch (Exception e) {
                         // Log error but continue processing other features
                         System.err.println("Error processing gradients for feature " + i + ": " + e.getMessage());
@@ -552,29 +547,13 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                 accumulator.hasGradients = null;
                 accumulator.touchedIndices = null;
                 accumulator.batchSampleCount = 0;
+
+                // Remove the accumulator from the thread-local map to prevent memory leaks
+                gradientAccumulators.remove();
             }
     }
     
-    /**
-     * Set the gradient clipping norm for embeddings.
-     * 
-     * <p>This is applied per embedding vector, not globally. Recommended values:
-     * <ul>
-     *   <li>0.0 (default) - Rely on global gradient clipping only</li>
-     *   <li>1.0 - Conservative clipping for stable training</li>
-     *   <li>5.0 - Less restrictive, allows larger updates</li>
-     * </ul>
-     * 
-     * <p>Note: This is in addition to any global gradient clipping applied by NeuralNet.
-     * 
-     * @param norm maximum allowed L2 norm for embedding gradients (0 = disabled)
-     */
-    public void setEmbeddingGradientClipNorm(float norm) {
-        if (norm < 0) {
-            throw new IllegalArgumentException("Gradient clip norm must be non-negative");
-        }
-        this.embeddingGradientClipNorm = norm;
-    }
+    
     
     
     @Override
@@ -1139,6 +1118,65 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     public int getTypeId() {
         return SerializationConstants.TYPE_MIXED_FEATURE_INPUT_LAYER;
     }
-    
-    
+
+
+    // ===============================
+    // GradientProvider Implementation
+    // ===============================
+
+    @Override
+    public List<float[][]> getGradients() {
+        GradientAccumulator accumulator = gradientAccumulators.get();
+        if (accumulator == null || accumulator.gradientBuffers == null) {
+            return List.of();
+        }
+
+        float batchScale = 1.0f / accumulator.batchSampleCount;
+
+        List<float[][]> allGradients = new ArrayList<>();
+        for (int i = 0; i < features.length; i++) {
+            if (accumulator.hasGradients != null && accumulator.hasGradients[i]) {
+                Set<Integer> touched = accumulator.touchedIndices.get(i);
+                if (touched != null && !touched.isEmpty()) {
+                    float[][] featureGradients = accumulator.gradientBuffers[i][0];
+                    float[][] touchedGradients = new float[touched.size()][];
+                    int idx = 0;
+                    for (int embIdx : touched) {
+                        float[] gradRow = featureGradients[embIdx];
+                        // Create a scaled copy - don't modify the original!
+                        float[] scaledGrad = new float[gradRow.length];
+                        for (int j = 0; j < gradRow.length; j++) {
+                            scaledGrad[j] = gradRow[j] * batchScale;
+                        }
+                        touchedGradients[idx++] = scaledGrad;
+                    }
+                    allGradients.add(touchedGradients);
+                }
+            }
+        }
+        return allGradients;
+    }
+
+    @Override
+    public void applyClippingScale(float scale) {
+        GradientAccumulator accumulator = gradientAccumulators.get();
+        if (accumulator == null || accumulator.gradientBuffers == null) {
+            return;
+        }
+
+        for (int i = 0; i < features.length; i++) {
+            if (accumulator.hasGradients != null && accumulator.hasGradients[i]) {
+                Set<Integer> touched = accumulator.touchedIndices.get(i);
+                if (touched != null && !touched.isEmpty()) {
+                    float[][] featureGradients = accumulator.gradientBuffers[i][0];
+                    for (int embIdx : touched) {
+                        float[] gradRow = featureGradients[embIdx];
+                        for (int j = 0; j < gradRow.length; j++) {
+                            gradRow[j] *= scale;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

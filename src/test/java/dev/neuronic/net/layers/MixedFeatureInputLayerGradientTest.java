@@ -50,9 +50,9 @@ class MixedFeatureInputLayerGradientTest {
         float[][] gradients = new float[3][];
         
         // Simulate forward pass for batch
-        contexts[0] = inputLayer.forward(new float[]{5.0f, 1.0f}); // token 5, value 1
-        contexts[1] = inputLayer.forward(new float[]{3.0f, 2.0f}); // token 3, value 2  
-        contexts[2] = inputLayer.forward(new float[]{5.0f, 3.0f}); // token 5, value 3 (different context)
+        contexts[0] = inputLayer.forward(new float[]{5.0f, 1.0f}, true); // token 5, value 1
+        contexts[1] = inputLayer.forward(new float[]{3.0f, 2.0f}, true); // token 3, value 2  
+        contexts[2] = inputLayer.forward(new float[]{5.0f, 3.0f}, true); // token 5, value 3 (different context)
         
         // Create upstream gradients (5 dimensions: 4 for embedding + 1 for passthrough)
         for (int i = 0; i < 3; i++) {
@@ -92,10 +92,10 @@ class MixedFeatureInputLayerGradientTest {
         
         Feature[] features = {Feature.embedding(10, 4, "token")};
         MixedFeatureInputLayer inputLayer = new MixedFeatureInputLayer(highLrOptimizer, features, WeightInitStrategy.HE);
-        inputLayer.setEmbeddingGradientClipNorm(1.0f); // Clip at norm 1.0
+        // Note: Embedding gradient clipping is now handled globally in NeuralNet
         
         // Forward pass
-        Layer.LayerContext context = inputLayer.forward(new float[]{5.0f});
+        Layer.LayerContext context = inputLayer.forward(new float[]{5.0f}, true);
         
         // Create large gradient to trigger clipping
         float[] largeGradient = new float[4];
@@ -135,7 +135,7 @@ class MixedFeatureInputLayerGradientTest {
         float[] embedBefore = inputLayer.getEmbedding(0, 42).clone();
         
         // Forward pass
-        Layer.LayerContext context = inputLayer.forward(input);
+        Layer.LayerContext context = inputLayer.forward(input, true);
         
         // Backward with gradient
         float[] gradient = new float[17]; // 16 + 1
@@ -197,9 +197,9 @@ class MixedFeatureInputLayerGradientTest {
         float hash1 = (float) "example.com".hashCode();
         float hash2 = (float) "test.com".hashCode();
         
-        Layer.LayerContext ctx1 = inputLayer.forward(new float[]{hash1, 0.1f});
-        Layer.LayerContext ctx2 = inputLayer.forward(new float[]{hash2, 0.2f});
-        Layer.LayerContext ctx3 = inputLayer.forward(new float[]{hash1, 0.3f}); // Same domain again
+        Layer.LayerContext ctx1 = inputLayer.forward(new float[]{hash1, 0.1f}, true);
+        Layer.LayerContext ctx2 = inputLayer.forward(new float[]{hash2, 0.2f}, true);
+        Layer.LayerContext ctx3 = inputLayer.forward(new float[]{hash1, 0.3f}, true); // Same domain again
         
         // Backward with gradients
         float[] grad = new float[17]; // 16 + 1
@@ -228,7 +228,7 @@ class MixedFeatureInputLayerGradientTest {
         float[] embed2Before = inputLayer.getEmbedding(0, 2).clone();
         
         
-        Layer.LayerContext ctx1 = inputLayer.forward(new float[]{1.0f});
+        Layer.LayerContext ctx1 = inputLayer.forward(new float[]{1.0f}, true);
         inputLayer.backward(new Layer.LayerContext[]{ctx1}, 0, new float[]{1.0f, 1.0f, 1.0f, 1.0f});
         inputLayer.applyGradients(null, null);
         
@@ -243,7 +243,7 @@ class MixedFeatureInputLayerGradientTest {
         float[] embed1Before2 = inputLayer.getEmbedding(0, 1).clone();
         float[] embed2Before2 = inputLayer.getEmbedding(0, 2).clone();
         
-        Layer.LayerContext ctx2 = inputLayer.forward(new float[]{2.0f});
+        Layer.LayerContext ctx2 = inputLayer.forward(new float[]{2.0f}, true);
         inputLayer.backward(new Layer.LayerContext[]{ctx2}, 0, new float[]{1.0f, 1.0f, 1.0f, 1.0f});
         inputLayer.applyGradients(null, null);
         

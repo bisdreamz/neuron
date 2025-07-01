@@ -30,8 +30,8 @@ public class EmbeddingLayerDebugTest {
         float[] inputA = {1.0f, 1.0f, 1.0f}; // "a a a"
         float[] inputB = {2.0f, 2.0f, 2.0f}; // "b b b"
         
-        Layer.LayerContext contextA = embedLayer.forward(inputA);
-        Layer.LayerContext contextB = embedLayer.forward(inputB);
+        Layer.LayerContext contextA = embedLayer.forward(inputA, false);
+        Layer.LayerContext contextB = embedLayer.forward(inputB, false);
         
         float[] outputA = contextA.outputs();
         float[] outputB = contextB.outputs();

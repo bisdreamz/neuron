@@ -35,8 +35,8 @@ public class GradientAccumulationTest {
         float[] gradient2 = {0.3f, 0.4f};
         
         // Forward passes
-        Layer.LayerContext ctx1 = layer.forward(input1);
-        Layer.LayerContext ctx2 = layer.forward(input2);
+        Layer.LayerContext ctx1 = layer.forward(input1, true);
+        Layer.LayerContext ctx2 = layer.forward(input2, true);
         
         // Accumulate gradients
         Layer.LayerContext[] stack = new Layer.LayerContext[]{ctx1};

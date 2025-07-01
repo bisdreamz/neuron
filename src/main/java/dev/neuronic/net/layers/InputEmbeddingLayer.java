@@ -104,7 +104,7 @@ public class InputEmbeddingLayer implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         if (input.length == 0)
             throw new IllegalArgumentException("Token sequence cannot be empty");
         
@@ -134,7 +134,7 @@ public class InputEmbeddingLayer implements Layer, Serializable {
     
     @Override
     public LayerContext forward(float[] input, ExecutorService executor) {
-        return forward(input);
+        return forward(input, false);
     }
     
     @Override

@@ -66,7 +66,7 @@ public class HashedEmbeddingLayer implements Layer {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Input is expected to be hash codes or string representations
         // For now, we'll handle integer hash codes
         int batchSize = input.length;
