@@ -27,13 +27,13 @@ public class TinyShakespeareLanguageExample {
     public static void main(String[] args) throws Exception {
         // hyperparams
         final int MAX_VOCAB_SZ   = 5_000;
-        final int MAX_TOKENS     = 100_000;
+        final int MAX_TOKENS     = 200_000;
         final int WINDOW_SIZE    = 20;
-        final int EMBEDDING_SIZE = 32;
-        final int HIDDEN_SIZE    = 32;
-        final int BATCH_SIZE     = 128;
+        final int EMBEDDING_SIZE = 16;
+        final int HIDDEN_SIZE    = 16;
+        final int BATCH_SIZE     = 64;
         final int EPOCHS         = 5;
-        final float LEARNING_RATE = 0.001f;
+        final float LEARNING_RATE = 0.00005f;
 
         // 1) load up to MAX_TOKENS tokens from our tiny file
         String[] tokens = new String[MAX_TOKENS];
@@ -45,13 +45,11 @@ public class TinyShakespeareLanguageExample {
                         .input(WINDOW_SIZE)
                         .withGlobalGradientClipping(1f)
                         .setDefaultOptimizer(
-                                new AdamWOptimizer(LEARNING_RATE, 0.0005f)
+                                new AdamWOptimizer(LEARNING_RATE, 0.00001f)
                         )
                         .layer(Layers.inputSequenceEmbedding(WINDOW_SIZE, MAX_VOCAB_SZ, EMBEDDING_SIZE))
-                        .layer(Layers.hiddenGruLastNormalized(HIDDEN_SIZE))
-                        .layer(Layers.dropout(0.1f))
+                        .layer(Layers.hiddenGruLast(HIDDEN_SIZE))
                         .layer(Layers.hiddenDenseRelu(HIDDEN_SIZE))
-                        .layer(Layers.dropout(0.1f))
                         .output(Layers.outputSoftmaxCrossEntropy(MAX_VOCAB_SZ))
         );
 

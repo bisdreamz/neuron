@@ -27,7 +27,7 @@ import java.util.*;
 public class CorrectProductionScenarioTest {
     
     // Toggle penalty training on/off
-    private static final boolean ENABLE_PENALTY_TRAINING = false; // Set to false to disable penalty
+    private static final boolean ENABLE_PENALTY_TRAINING = true; // Set to false to disable penalty
     
     // Segment configuration
     private static final int numPremiumSegments = 100;  // 100 premium segments
@@ -52,11 +52,13 @@ public class CorrectProductionScenarioTest {
         System.out.println("1. EVERY request → penalty training");
         System.out.println("2. ~50% of requests → ALSO bid training");
         System.out.println("3. Premium segments get MORE traffic");
+        System.out.println("3. Premium segments get MORE traffic");
         System.out.println("4. Overall ratio: 2:1 penalties:bids\n");
+
+        int batchSize = 64; // Single sample training like production
         
         // Test with different penalty approaches and batch sizes
-        int batchSize = 1; // Single sample training like production
-        testWithPenalty("Negative penalty (-$0.0003)", -0.0003f, batchSize);
+        testWithPenalty("penalty (-$0.0003)", 0.05f, batchSize);
         //testWithPenalty("Tiny positive ($0.0001)", 0.0001f, batchSize);
         //testWithPenalty("Very tiny positive ($0.00001)", 0.00001f, batchSize);
     }
@@ -91,17 +93,20 @@ public class CorrectProductionScenarioTest {
             //Feature.autoScale(0f, 20f, "BIDFLOOR")
         };
 
-        Optimizer optimizer = new SgdOptimizer(0.001f); // Same as updated SerialCorrectProductionScenarioTest
-        //Optimizer optimizer = new AdamWOptimizer(0.001f, 0.0001f);
-        //Optimizer optimizer = new SgdOptimizer(0.000001f);
-        int steps = 10_000;  // Match SerialCorrectProductionScenarioTest
+        //Optimizer optimizer = new SgdOptimizer(0.0002f); // Same as updated SerialCorrectProductionScenarioTest
+        //Optimizer optimizer = new AdamWOptimizer(0.0001f, 0f);
+        //Optimizer optimizer = new AdamWOptimizer(0.0005f, 0.000001f);
+        Optimizer optimizer = new AdamWOptimizer(0.0005f, 0.7f, 0.999f, 1e-8f, 0.000001f);
+        int steps = 300_000;  // Match SerialCorrectProductionScenarioTest
 
         NeuralNet net = NeuralNet.newBuilder()
                 .setDefaultOptimizer(optimizer)
+                .withGlobalGradientClipping(0f)
                 .layer(Layers.inputMixed(features))
                 .layer(Layers.hiddenDenseLeakyRelu(64))
                 .layer(Layers.hiddenDenseLeakyRelu(32))
-                .output(Layers.outputLinearRegression(1));
+                //.output(Layers.outputLinearRegression(1));
+                .output(Layers.outputHuberRegression(1, optimizer, 3f));
 
         SimpleNetFloat model = SimpleNet.ofFloatRegression(net);
 
@@ -518,8 +523,16 @@ public class CorrectProductionScenarioTest {
                 allActuals.add(actual);
                 allPredictions.add(predicted);
                 
-                // Calculate percentage error
-                float error = actual != 0 ? (predicted - actual) / Math.abs(actual) * 100 : 0;
+                // Calculate percentage error with safeguards
+                float error;
+                if (Math.abs(actual) < 0.01f) {
+                    // For very small values, use absolute error instead
+                    error = Math.abs(predicted - actual) * 100;
+                } else {
+                    error = (predicted - actual) / Math.abs(actual) * 100;
+                    // Cap extreme percentage errors
+                    error = Math.max(-200f, Math.min(200f, error));
+                }
                 percentageErrors.add(error);
             }
         }
@@ -554,7 +567,15 @@ public class CorrectProductionScenarioTest {
             allActuals.add(actual);
             allPredictions.add(predicted);
             
-            float error = actual != 0 ? (predicted - actual) / Math.abs(actual) * 100 : 0;
+            float error;
+            if (Math.abs(actual) < 0.01f) {
+                // For very small values, use absolute error instead
+                error = Math.abs(predicted - actual) * 100;
+            } else {
+                error = (predicted - actual) / Math.abs(actual) * 100;
+                // Cap extreme percentage errors
+                error = Math.max(-200f, Math.min(200f, error));
+            }
             percentageErrors.add(error);
         }
         
@@ -634,35 +655,54 @@ public class CorrectProductionScenarioTest {
         System.out.printf("  Mean Absolute Percentage Error (MAPE): %.2f%%\n", meanAbsolutePercentageError);
         System.out.printf("  Root Mean Square Error (RMSE): $%.4f\n", rmse);
         
-        // Check if model is learning properly
+        // Check if model is learning properly - separate by known segment type
         float avgPremiumActual = 0, avgPremiumPred = 0;
         float avgRegularActual = 0, avgRegularPred = 0;
         int premiumCount = 0, regularCount = 0;
         
+        // We know first samplesPerType*4 predictions are premium (4 OS values each)
+        int premiumSamples = Math.min(samplesPerType, premiumSegments.size()) * 4;
+        
         for (int i = 0; i < allActuals.size(); i++) {
-            if (allActuals.get(i) > 1.5f) { // Premium
+            if (i < premiumSamples) { // Premium segments
                 avgPremiumActual += allActuals.get(i);
                 avgPremiumPred += allPredictions.get(i);
                 premiumCount++;
-            } else { // Regular
+            } else { // Regular segments
                 avgRegularActual += allActuals.get(i);
                 avgRegularPred += allPredictions.get(i);
                 regularCount++;
             }
         }
         
-        avgPremiumActual /= premiumCount;
-        avgPremiumPred /= premiumCount;
-        avgRegularActual /= regularCount;
-        avgRegularPred /= regularCount;
+        // Safe division with checks
+        if (premiumCount > 0) {
+            avgPremiumActual /= premiumCount;
+            avgPremiumPred /= premiumCount;
+        }
+        if (regularCount > 0) {
+            avgRegularActual /= regularCount;
+            avgRegularPred /= regularCount;
+        }
         
         System.out.printf("\nSegment Analysis:\n");
-        System.out.printf("  Premium - Actual: $%.3f, Predicted: $%.3f (%.1f%% error)\n", 
-            avgPremiumActual, avgPremiumPred, 
-            (avgPremiumPred - avgPremiumActual) / avgPremiumActual * 100);
-        System.out.printf("  Regular - Actual: $%.3f, Predicted: $%.3f (%.1f%% error)\n", 
-            avgRegularActual, avgRegularPred,
-            (avgRegularPred - avgRegularActual) / avgRegularActual * 100);
+        if (premiumCount > 0) {
+            float premiumError = (Math.abs(avgPremiumActual) > 0.01f) ? 
+                (avgPremiumPred - avgPremiumActual) / avgPremiumActual * 100 : 0;
+            System.out.printf("  Premium (%d samples) - Actual: $%.3f, Predicted: $%.3f (%.1f%% error)\n", 
+                premiumCount, avgPremiumActual, avgPremiumPred, premiumError);
+        } else {
+            System.out.println("  Premium - No samples found");
+        }
+        
+        if (regularCount > 0) {
+            float regularError = (Math.abs(avgRegularActual) > 0.01f) ? 
+                (avgRegularPred - avgRegularActual) / avgRegularActual * 100 : 0;
+            System.out.printf("  Regular (%d samples) - Actual: $%.3f, Predicted: $%.3f (%.1f%% error)\n", 
+                regularCount, avgRegularActual, avgRegularPred, regularError);
+        } else {
+            System.out.println("  Regular - No samples found");
+        }
         
         boolean success = meanAbsolutePercentageError < 25.0f && 
                          avgPremiumPred > avgRegularPred * 2;
