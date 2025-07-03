@@ -27,7 +27,7 @@ import java.io.IOException;
  * - > 0.5: Positive class
  * - < 0.5: Negative class
  */
-public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable {
+public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable, RegressionOutput {
     
     private final Optimizer optimizer;
     private final float[][] weights;

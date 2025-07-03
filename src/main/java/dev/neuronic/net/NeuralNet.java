@@ -67,7 +67,12 @@ public class NeuralNet implements Serializable {
 
         Layer.LayerContext output = null;
         for (int x = 0; x < layers.length; x++) {
-            output = layers[x].forward(output != null ? output.outputs() : input, isTraining);
+            float[] currentInput = (output != null) ? output.outputs() : input;
+            if (executor != null) {
+                output = layers[x].forward(currentInput, isTraining, executor);
+            } else {
+                output = layers[x].forward(currentInput, isTraining);
+            }
             // Store the context directly - layers are responsible for their own buffer management
             contexts[x] = output;
         }

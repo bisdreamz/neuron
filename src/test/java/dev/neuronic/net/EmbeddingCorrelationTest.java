@@ -22,18 +22,12 @@ public class EmbeddingCorrelationTest {
         System.out.println("Testing if model actually learns segment-specific CPMs...\n");
         
         // Test with proper configuration
-        testCorrelation(32, 512, true);
-        testCorrelation(32, 512, false);
+        testCorrelation(32, 256);
     }
     
-    private void testCorrelation(int embeddingDim, int firstLayerSize, boolean useComplexModel) {
-        System.out.printf("\n=== Testing: %d dims, %d neurons, %s ===\n", 
-            embeddingDim, firstLayerSize, useComplexModel ? "complex features" : "simple features");
-        
+    private void testCorrelation(int embeddingDim, int firstLayerSize) {
         Feature[] features;
-        if (useComplexModel) {
-            // Your full feature set
-            features = new Feature[] {
+        features = new Feature[]{
                 Feature.oneHot(50, "FORMAT"),
                 Feature.oneHot(50, "PLCMT"),
                 Feature.oneHot(50, "DEVTYPE"),
@@ -47,17 +41,9 @@ public class EmbeddingCorrelationTest {
                 Feature.embeddingLRU(20_000, embeddingDim, "SITEID"),
                 Feature.autoScale(0f, 20f, "BIDFLOOR"),
                 Feature.autoScale(0f, 600f, "TMAX")
-            };
-        } else {
-            // Simplified to isolate the issue
-            features = new Feature[] {
-                Feature.embeddingLRU(10_000, embeddingDim, "ZONEID"),
-                Feature.embeddingLRU(5_000, embeddingDim, "DOMAIN"),
-                Feature.passthrough("BIDFLOOR")
-            };
-        }
-        
-        AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.001f);
+        };
+
+        AdamWOptimizer optimizer = new AdamWOptimizer(0.0005f, 0f);
         
         NeuralNet net = NeuralNet.newBuilder()
             .input(features.length)
@@ -67,7 +53,7 @@ public class EmbeddingCorrelationTest {
             .layer(Layers.hiddenDenseRelu(256))
             .layer(Layers.hiddenDenseRelu(128))
             .layer(Layers.hiddenDenseRelu(64))
-            .withGlobalGradientClipping(1.0f)
+            .withGlobalGradientClipping(0f)
             .output(Layers.outputHuberRegression(1, optimizer, 3.0f));
             
         SimpleNetFloat model = SimpleNet.ofFloatRegression(net);
@@ -103,24 +89,22 @@ public class EmbeddingCorrelationTest {
         System.out.println("Training on known zone->CPM mappings...");
         Map<String, Integer> trainingSamples = new HashMap<>();
         
-        for (int step = 0; step < 100_000; step++) {
+        for (int step = 0; step < 30_000; step++) {
             int zoneId = rand.nextInt(1000);
             int domainId = rand.nextInt(1000);
             
             Map<String, Object> input = new HashMap<>();
-            if (useComplexModel) {
-                // Add all features
-                input.put("FORMAT", rand.nextInt(10));
-                input.put("PLCMT", rand.nextInt(5));
-                input.put("DEVTYPE", rand.nextInt(7));
-                input.put("DEVCON", rand.nextInt(5));
-                input.put("GEO", rand.nextInt(30));
-                input.put("PUBID", rand.nextInt(50));
-                input.put("OS", rand.nextInt(4));
-                input.put("PUB", rand.nextInt(1000));
-                input.put("SITEID", rand.nextInt(2000));
-                input.put("TMAX", 300f);
-            }
+            // Add all features
+            input.put("FORMAT", rand.nextInt(10));
+            input.put("PLCMT", rand.nextInt(5));
+            input.put("DEVTYPE", rand.nextInt(7));
+            input.put("DEVCON", rand.nextInt(5));
+            input.put("GEO", rand.nextInt(30));
+            input.put("PUBID", rand.nextInt(50));
+            input.put("OS", rand.nextInt(4));
+            input.put("PUB", rand.nextInt(1000));
+            input.put("SITEID", rand.nextInt(2000));
+            input.put("TMAX", 300f);
             
             input.put("ZONEID", zoneId);
             input.put("DOMAIN", domainId);
@@ -135,10 +119,7 @@ public class EmbeddingCorrelationTest {
             String key = zoneId + "_" + domainId;
             trainingSamples.merge(key, 1, Integer::sum);
             
-            // Train with 2% probability
-            if (rand.nextFloat() < 0.02f) {
-                model.train(input, target);
-            }
+            model.train(input, target);
         }
         
         System.out.printf("Trained on %d unique zone-domain combinations\n", trainingSamples.size());
@@ -156,18 +137,16 @@ public class EmbeddingCorrelationTest {
             int domainId = test % 1000;
             
             Map<String, Object> input = new HashMap<>();
-            if (useComplexModel) {
-                input.put("FORMAT", 0);
-                input.put("PLCMT", 0);
-                input.put("DEVTYPE", 0);
-                input.put("DEVCON", 0);
-                input.put("GEO", 0);
-                input.put("PUBID", 0);
-                input.put("OS", 0);
-                input.put("PUB", 0);
-                input.put("SITEID", 0);
-                input.put("TMAX", 300f);
-            }
+            input.put("FORMAT", 0);
+            input.put("PLCMT", 0);
+            input.put("DEVTYPE", 0);
+            input.put("DEVCON", 0);
+            input.put("GEO", 0);
+            input.put("PUBID", 0);
+            input.put("OS", 0);
+            input.put("PUB", 0);
+            input.put("SITEID", 0);
+            input.put("TMAX", 300f);
             
             input.put("ZONEID", zoneId);
             input.put("DOMAIN", domainId);
@@ -197,7 +176,7 @@ public class EmbeddingCorrelationTest {
         
         // Test if model differentiates between zones
         System.out.println("\nTesting zone differentiation:");
-        testZoneDifferentiation(model, zoneTargetCPMs, useComplexModel);
+        testZoneDifferentiation(model, zoneTargetCPMs);
         
         // Show sample predictions vs actual
         System.out.println("\nSample predictions (first 10):");
@@ -219,22 +198,19 @@ public class EmbeddingCorrelationTest {
         }
     }
     
-    private void testZoneDifferentiation(SimpleNetFloat model, Map<Integer, Float> zoneTargetCPMs, 
-                                         boolean useComplexModel) {
+    private void testZoneDifferentiation(SimpleNetFloat model, Map<Integer, Float> zoneTargetCPMs) {
         // Test if premium zones predict higher than poor zones
         Map<String, Object> baseInput = new HashMap<>();
-        if (useComplexModel) {
-            baseInput.put("FORMAT", 0);
-            baseInput.put("PLCMT", 0);
-            baseInput.put("DEVTYPE", 0);
-            baseInput.put("DEVCON", 0);
-            baseInput.put("GEO", 0);
-            baseInput.put("PUBID", 0);
-            baseInput.put("OS", 0);
-            baseInput.put("PUB", 0);
-            baseInput.put("SITEID", 0);
-            baseInput.put("TMAX", 300f);
-        }
+        baseInput.put("FORMAT", 0);
+        baseInput.put("PLCMT", 0);
+        baseInput.put("DEVTYPE", 0);
+        baseInput.put("DEVCON", 0);
+        baseInput.put("GEO", 0);
+        baseInput.put("PUBID", 0);
+        baseInput.put("OS", 0);
+        baseInput.put("PUB", 0);
+        baseInput.put("SITEID", 0);
+        baseInput.put("TMAX", 300f);
         baseInput.put("DOMAIN", 100);
         baseInput.put("BIDFLOOR", 0.5f);
         

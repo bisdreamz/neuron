@@ -1,13 +1,16 @@
 package dev.neuronic.net;
 
 import dev.neuronic.net.layers.Feature;
+import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import dev.neuronic.net.optimizers.SgdOptimizer;
+import dev.neuronic.net.outputs.RegressionOutput;
 import dev.neuronic.net.simple.SimpleNet;
 import dev.neuronic.net.simple.SimpleNetFloat;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
+import java.util.concurrent.ExecutorService;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -15,6 +18,55 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test to verify embeddings are actually updating correctly.
  */
 public class EmbeddingUpdateTest {
+
+    /**
+     * A dummy output layer with no learnable parameters.
+     * It simply sums its inputs to produce a single output value.
+     * This allows testing the gradient flow to the embedding layer in isolation.
+     */
+    private static class DummyOutputLayer implements Layer, Layer.Spec, RegressionOutput {
+        @Override
+        public LayerContext forward(float[] input, boolean isTraining) {
+            float sum = 0;
+            for (float v : input) {
+                sum += v;
+            }
+            return new LayerContext(input, null, new float[]{sum});
+        }
+
+        @Override
+        public float[] backward(LayerContext[] stack, int stackIndex, float[] upstreamGradient) {
+            // The gradient for each input is just the upstream gradient, since the output is a simple sum.
+            float[] downstreamGradient = new float[stack[stackIndex].inputs().length];
+            Arrays.fill(downstreamGradient, upstreamGradient[0]);
+            return downstreamGradient;
+        }
+
+        @Override
+        public void applyGradients(float[][] weightGradients, float[] biasGradients) {
+            // No-op, no learnable parameters
+        }
+
+        @Override
+        public GradientDimensions getGradientDimensions() {
+            return null; // No learnable parameters for the NeuralNet to manage
+        }
+
+        @Override
+        public int getOutputSize() {
+            return 1;
+        }
+
+        @Override
+        public Layer create(int inputSize) {
+            return this;
+        }
+
+        @Override
+        public Layer create(int inputSize, dev.neuronic.net.optimizers.Optimizer defaultOptimizer) {
+            return this;
+        }
+    }
     
     @Test
     public void testEmbeddingGradientFlow() {
@@ -32,7 +84,7 @@ public class EmbeddingUpdateTest {
             .input(features.length)
             .setDefaultOptimizer(optimizer)
             .layer(Layers.inputMixed(features))
-            .output(Layers.outputLinearRegression(1));
+            .output(new DummyOutputLayer());
             
         SimpleNetFloat model = SimpleNet.ofFloatRegression(net);
         

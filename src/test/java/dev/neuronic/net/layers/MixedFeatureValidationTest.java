@@ -97,18 +97,18 @@ class MixedFeatureValidationTest {
     void testInputAllOneHotValidation() {
         // Test null category sizes
         assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer, (int[]) null);
+            Layers.inputAllOneHot((int[]) null);
         });
 
         // Test empty category sizes
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer);
+            Layers.inputAllOneHot();
         });
         assertTrue(exception.getMessage().contains("At least one feature must be configured"));
 
         // Test invalid category size
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer, 4, -1, 8);
+            Layers.inputAllOneHot(4, -1, 8);
         });
         assertTrue(exception.getMessage().contains("Feature 1: numberOfCategories must be positive"));
     }

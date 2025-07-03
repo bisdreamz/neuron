@@ -120,6 +120,14 @@ public interface Layer {
     public static record GradientDimensions(int weightRows, int weightCols, int biasSize) {}
     
     // Executor-aware methods with smart defaults
+    default LayerContext forward(float[] input, boolean isTraining, ExecutorService executor) {
+        if (executor != null) {
+            return forward(input, executor);
+        } else {
+            return forward(input, isTraining);
+        }
+    }
+
     default LayerContext forward(float[] input, ExecutorService executor) {
         // This default implementation assumes training mode is false for executor-based forward passes.
         // Layers that have different behavior for training/inference should override this.

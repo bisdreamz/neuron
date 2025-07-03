@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.*;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 /**
  * CORRECT production scenario matching what you actually do:
  * 
@@ -389,6 +391,8 @@ public class CorrectProductionScenarioTest {
                          uniquePremium.size() > 10; // Good diversity
         
         System.out.println(success ? "[SUCCESS] - Model differentiates segments!" : "[FAILURE] - Model cannot differentiate!");
+        assertTrue(success, String.format("Model failed to differentiate segments. Premium avg: $%.3f, Regular avg: $%.3f, Unique values: %d", 
+                   premiumAvgPred, regularAvgPred, uniquePremium.size()));
     }
     
     private record PredictionResult(float premiumPred, float regularPred, int step) {}
@@ -709,5 +713,7 @@ public class CorrectProductionScenarioTest {
         
         System.out.println(success ? "\n[SUCCESS] Model learns CPM patterns accurately!" : 
                                     "\n[FAILURE] Model struggles to learn CPM patterns!");
+        assertTrue(success, String.format("Model failed to learn CPM patterns. MAPE: %.2f%%, Premium avg: $%.3f, Regular avg: $%.3f", 
+                   meanAbsolutePercentageError, avgPremiumPred, avgRegularPred));
     }
 }
