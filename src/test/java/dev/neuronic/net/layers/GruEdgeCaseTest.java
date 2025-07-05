@@ -21,7 +21,7 @@ class GruEdgeCaseTest {
         
         // Test with minimal viable dimensions
         float[] input = {0.5f}; // Single timestep, single feature
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         
         assertEquals(1, context.outputs().length, "Output should be hiddenSize=1");
         assertTrue(Float.isFinite(context.outputs()[0]), "Output should be finite");
@@ -41,7 +41,7 @@ class GruEdgeCaseTest {
         
         // Test with single timestep
         float[] input = {1.0f, 0.5f, -0.5f, 0.0f}; // Single timestep
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         
         assertEquals(8, context.outputs().length, "Output should be hiddenSize * 1 timestep");
         
@@ -72,7 +72,7 @@ class GruEdgeCaseTest {
             input[i] = (float) Math.sin(i * 0.1); // Sinusoidal pattern
         }
         
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         assertEquals(seqLen * 4, context.outputs().length, 
             "Output should be seqLen * hiddenSize");
         
@@ -108,7 +108,7 @@ class GruEdgeCaseTest {
         };
         
         // Should handle extreme values gracefully (activations will saturate)
-        Layer.LayerContext context = gru.forward(extremeInput);
+        Layer.LayerContext context = gru.forward(extremeInput, false);
         
         // All outputs should still be finite and bounded
         for (float val : context.outputs()) {
@@ -124,17 +124,17 @@ class GruEdgeCaseTest {
         
         // Test with NaN input
         float[] nanInput = {1.0f, Float.NaN, 0.5f, 0.0f, 1.0f, 0.5f};
-        assertThrows(IllegalArgumentException.class, () -> gru.forward(nanInput),
+        assertThrows(IllegalArgumentException.class, () -> gru.forward(nanInput, false),
             "Should reject NaN input");
         
         // Test with Infinity input
         float[] infInput = {1.0f, Float.POSITIVE_INFINITY, 0.5f, 0.0f, 1.0f, 0.5f};
-        assertThrows(IllegalArgumentException.class, () -> gru.forward(infInput),
+        assertThrows(IllegalArgumentException.class, () -> gru.forward(infInput, false),
             "Should reject infinite input");
         
         // Test with negative infinity
         float[] negInfInput = {1.0f, Float.NEGATIVE_INFINITY, 0.5f, 0.0f, 1.0f, 0.5f};
-        assertThrows(IllegalArgumentException.class, () -> gru.forward(negInfInput),
+        assertThrows(IllegalArgumentException.class, () -> gru.forward(negInfInput, false),
             "Should reject negative infinite input");
     }
     
@@ -144,7 +144,7 @@ class GruEdgeCaseTest {
         GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
         
         float[] input = {1.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.5f};
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         
         // Test with null gradient
         assertThrows(IllegalArgumentException.class, () -> 
@@ -189,7 +189,7 @@ class GruEdgeCaseTest {
                 futures[i] = executor.submit(() -> {
                     float[] input = {threadId * 0.1f, 0.5f, 0.0f, 1.0f, 
                                    0.2f, threadId * 0.05f, 0.8f, 0.3f};
-                    Layer.LayerContext context = gru.forward(input);
+                    Layer.LayerContext context = gru.forward(input, false);
                     
                     // Verify output is reasonable
                     assertEquals(16, context.outputs().length);
@@ -226,7 +226,7 @@ class GruEdgeCaseTest {
                 input[j] = (float) Math.sin(i * 0.01 + j * 0.1);
             }
             
-            Layer.LayerContext context = gru.forward(input);
+            Layer.LayerContext context = gru.forward(input, false);
             
             float[] upstreamGrad = new float[64 * 5];
             for (int j = 0; j < upstreamGrad.length; j++) {
@@ -261,7 +261,7 @@ class GruEdgeCaseTest {
             tinyInput[i] = 1e-30f; // Near float underflow
         }
         
-        Layer.LayerContext context = gru.forward(tinyInput);
+        Layer.LayerContext context = gru.forward(tinyInput, false);
         for (float val : context.outputs()) {
             assertTrue(Float.isFinite(val), "Should handle tiny inputs gracefully");
         }

@@ -104,29 +104,25 @@ public class DropoutLayer implements Layer, Serializable {
     
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         int size = input.length;
-        
+
         // Validate size if fixed
         if (fixedSize > 0 && size != fixedSize) {
             throw new IllegalArgumentException("Input size mismatch: expected " + fixedSize + ", got " + size);
         }
-        
+
+        // If not training or dropout is zero, just pass through
+        if (!isTraining || dropoutRate == 0.0f) {
+            return new DropoutContext(input, input, null); // Pass input directly as output
+        }
+
         BufferContainer container = buffers.get();
         container.ensureCapacity(size);
-        
-        if (dropoutRate == 0.0f) {
-            // No dropout: pass through unchanged
-            System.arraycopy(input, 0, container.output, 0, size);
-            // Return view of the buffer, not the whole buffer
-            float[] output = new float[size];
-            System.arraycopy(container.output, 0, output, 0, size);
-            return new DropoutContext(input, output, null);
-        }
-        
+
         // Training mode: apply dropout
         Random random = ThreadLocalRandom.current();
-        
+
         // Generate dropout mask and apply with inverted dropout scaling using ThreadLocal buffers
         for (int i = 0; i < size; i++) {
             if (random.nextFloat() < keepProbability) {
@@ -137,13 +133,13 @@ public class DropoutLayer implements Layer, Serializable {
                 container.output[i] = 0.0f;
             }
         }
-        
+
         // Create fresh arrays for LayerContext return
         float[] freshOutput = new float[size];
         boolean[] freshMask = new boolean[size];
         System.arraycopy(container.output, 0, freshOutput, 0, size);
         System.arraycopy(container.mask, 0, freshMask, 0, size);
-        
+
         return new DropoutContext(input, freshOutput, freshMask);
     }
     

@@ -79,7 +79,7 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Allocate new array for LayerContext - never use ThreadLocal buffers in contexts
         float[] output = new float[outputs];
         

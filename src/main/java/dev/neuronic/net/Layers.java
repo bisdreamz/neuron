@@ -294,6 +294,38 @@ public final class Layers {
     }
     
     /**
+     * Multiple DIFFERENT embedding features with INDEPENDENT vocabularies (default optimizer).
+     * 
+     * <p><b>⚠️ NOT FOR SEQUENCES - Use inputSequenceEmbedding() for language models ⚠️</b>
+     * 
+     * <p>Creates SEPARATE embedding tables for each feature. Each position represents
+     * a different feature type with its own vocabulary. Uses the neural network's
+     * default optimizer set with {@code .setDefaultOptimizer()}.
+     * 
+     * <p><b>Example - Ad Tech Features (DIFFERENT vocabularies):</b>
+     * <pre>{@code
+     * // 3 different ID types, each with own vocabulary
+     * Layers.inputAllEmbeddings(64,
+     *     100000,  // Feature 0: bundle_id (100k apps)
+     *     50000,   // Feature 1: publisher_id (50k publishers)
+     *     25000    // Feature 2: category_id (25k categories)
+     * )
+     * // Creates 3 independent embedding tables
+     * // Total memory: (100k + 50k + 25k) × 64 × 4 bytes
+     * }</pre>
+     * 
+     * <p><b>Wrong for language models!</b> Use inputSequenceEmbedding() when
+     * positions share vocabulary (words in a sentence).
+     * 
+     * @param embeddingDimension size of embedding vectors for all features
+     * @param maxUniqueValuesPerFeature vocabulary size for each feature (in input order)
+     * @return mixed feature input layer spec with all embedding features
+     */
+    public static Layer.Spec inputAllEmbeddings(int embeddingDimension, int... maxUniqueValuesPerFeature) {
+        return inputAllEmbeddings(embeddingDimension, null, maxUniqueValuesPerFeature, null);
+    }
+    
+    /**
      * Multiple DIFFERENT embedding features with INDEPENDENT vocabularies.
      * 
      * <p><b>⚠️ NOT FOR SEQUENCES - Use inputSequenceEmbedding() for language models ⚠️</b>
@@ -323,6 +355,34 @@ public final class Layers {
      */
     public static Layer.Spec inputAllEmbeddings(int embeddingDimension, Optimizer optimizer, int... maxUniqueValuesPerFeature) {
         return inputAllEmbeddings(embeddingDimension, optimizer, maxUniqueValuesPerFeature, null);
+    }
+    
+    /**
+     * Multiple DIFFERENT embedding features with INDEPENDENT vocabularies and optional meaningful names (default optimizer).
+     * 
+     * <p>Same as {@link #inputAllEmbeddings(int, int...)} but with explicit feature names
+     * for use with Map-based inputs in SimpleNet wrappers. Uses the neural network's
+     * default optimizer set with {@code .setDefaultOptimizer()}.
+     * 
+     * <p><b>Example - Ad Tech Features with names:</b>
+     * <pre>{@code
+     * // 3 different ID types with meaningful names
+     * Layers.inputAllEmbeddings(64,
+     *     new int[]{100000, 50000, 25000},  // vocabulary sizes
+     *     new String[]{"bundle_id", "publisher_id", "category_id"}  // names
+     * )
+     * // Now can use: model.train(Map.of("bundle_id", 12345, "publisher_id", 678, "category_id", 42), target)
+     * }</pre>
+     * 
+     * @param embeddingDimension size of embedding vectors for all features
+     * @param maxUniqueValuesPerFeature vocabulary size for each feature (in input order)
+     * @param featureNames optional array of meaningful names for each feature (can be null)
+     * @return mixed feature input layer spec with all embedding features
+     * @throws IllegalArgumentException if featureNames is non-null and length doesn't match maxUniqueValuesPerFeature length
+     */
+    public static Layer.Spec inputAllEmbeddings(int embeddingDimension, 
+                                               int[] maxUniqueValuesPerFeature, String[] featureNames) {
+        return inputAllEmbeddings(embeddingDimension, null, maxUniqueValuesPerFeature, featureNames);
     }
     
     /**
@@ -385,45 +445,45 @@ public final class Layers {
      * 
      * <p>Use when all your features are low-cardinality categories that don't
      * need learned representations. Memory-efficient for small categorical features.
+     * One-hot encoding has no learnable parameters, so no optimizer is needed.
      * 
      * <p><b>Example:</b>
      * <pre>{@code
      * // All features are simple categories
-     * Layers.inputAllOneHot(optimizer, 4, 8, 3, 7)
+     * Layers.inputAllOneHot(4, 8, 3, 7)
      * // connection_type (4), device_type (8), day_of_week (3), hour_bucket (7)
      * }</pre>
      * 
-     * @param optimizer optimizer (not used since one-hot has no learnable parameters, but kept for API consistency)
      * @param numberOfCategoriesPerFeature category count for each feature (in input order)
      * @return mixed feature input layer spec with all one-hot features
      */
-    public static Layer.Spec inputAllOneHot(Optimizer optimizer, int... numberOfCategoriesPerFeature) {
-        return inputAllOneHot(optimizer, numberOfCategoriesPerFeature, null);
+    public static Layer.Spec inputAllOneHot(int... numberOfCategoriesPerFeature) {
+        return inputAllOneHot(numberOfCategoriesPerFeature, null);
     }
     
     /**
      * All features encoded as one-hot vectors with optional meaningful names.
      * 
-     * <p>Same as {@link #inputAllOneHot(Optimizer, int...)} but with explicit feature names
-     * for use with Map-based inputs in SimpleNet wrappers.
+     * <p>Same as {@link #inputAllOneHot(int...)} but with explicit feature names
+     * for use with Map-based inputs in SimpleNet wrappers. One-hot encoding has no
+     * learnable parameters, so no optimizer is needed.
      * 
      * <p><b>Example with names:</b>
      * <pre>{@code
      * // All features are simple categories with names
-     * Layers.inputAllOneHot(optimizer, 
+     * Layers.inputAllOneHot(
      *     new int[]{4, 8, 3, 7},
      *     new String[]{"connection_type", "device_type", "day_of_week", "hour_bucket"}
      * )
      * // Now can use: model.train(Map.of("connection_type", 2, "device_type", 5, ...), target)
      * }</pre>
      * 
-     * @param optimizer optimizer (not used since one-hot has no learnable parameters, but kept for API consistency)
      * @param numberOfCategoriesPerFeature category count for each feature (in input order)
      * @param featureNames optional array of meaningful names for each feature (can be null)
      * @return mixed feature input layer spec with all one-hot features
      * @throws IllegalArgumentException if featureNames is non-null and length doesn't match numberOfCategoriesPerFeature length
      */
-    public static Layer.Spec inputAllOneHot(Optimizer optimizer, int[] numberOfCategoriesPerFeature, String[] featureNames) {
+    public static Layer.Spec inputAllOneHot(int[] numberOfCategoriesPerFeature, String[] featureNames) {
         // Validate parameters to prevent configuration errors
         if (numberOfCategoriesPerFeature == null)
             throw new IllegalArgumentException("numberOfCategoriesPerFeature cannot be null");
@@ -449,7 +509,7 @@ public final class Layers {
                 features[i] = Feature.oneHot(numberOfCategoriesPerFeature[i]);
             }
         }
-        return MixedFeatureInputLayer.spec(optimizer, features, WeightInitStrategy.XAVIER);
+        return MixedFeatureInputLayer.spec(null, features, WeightInitStrategy.XAVIER);
     }
     
     /**
@@ -865,14 +925,14 @@ public final class Layers {
      * }</pre>
      */
     public static DenseLayer.DenseLayerSpec hiddenDenseLeakyRelu(int neurons) {
-        return DenseLayer.specChainable(neurons, LeakyReluActivator.createDefault(), WeightInitStrategy.HE);
+        return DenseLayer.specChainable(neurons, LeakyReluActivator.createDefault(), WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**
      * Leaky ReLU dense layer with default alpha=0.01.
      */
     public static Layer.Spec hiddenDenseLeakyRelu(int neurons, Optimizer optimizer) {
-        return hiddenDense(neurons, LeakyReluActivator.createDefault(), optimizer, WeightInitStrategy.HE);
+        return hiddenDense(neurons, LeakyReluActivator.createDefault(), optimizer, WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**
@@ -882,14 +942,14 @@ public final class Layers {
      * @param alpha negative slope (typically 0.01 to 0.3)
      */
     public static DenseLayer.DenseLayerSpec hiddenDenseLeakyRelu(int neurons, float alpha) {
-        return DenseLayer.specChainable(neurons, LeakyReluActivator.create(alpha), WeightInitStrategy.HE);
+        return DenseLayer.specChainable(neurons, LeakyReluActivator.create(alpha), WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**
      * Leaky ReLU dense layer with custom alpha and optimizer.
      */
     public static Layer.Spec hiddenDenseLeakyRelu(int neurons, float alpha, Optimizer optimizer) {
-        return hiddenDense(neurons, LeakyReluActivator.create(alpha), optimizer, WeightInitStrategy.HE);
+        return hiddenDense(neurons, LeakyReluActivator.create(alpha), optimizer, WeightInitStrategy.HE_PLUS_UNIFORM_NOISE);
     }
     
     /**

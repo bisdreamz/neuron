@@ -46,7 +46,7 @@ public class MultiLabelSigmoidOutput implements Layer {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Compute logits using ThreadLocal buffer
         // Allocate new arrays for LayerContext - never use ThreadLocal buffers in contexts
         float[] logits = new float[labels];

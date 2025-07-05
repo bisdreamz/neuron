@@ -21,13 +21,13 @@ public class DropoutLayerDynamicSizeTest {
         float[] input2560 = new float[2560];
         
         // Should handle all sizes without throwing
-        LayerContext ctx1 = dropout.forward(input128);
+        LayerContext ctx1 = dropout.forward(input128, false);
         assertEquals(128, ctx1.outputs().length);
         
-        LayerContext ctx2 = dropout.forward(input256);
+        LayerContext ctx2 = dropout.forward(input256, false);
         assertEquals(256, ctx2.outputs().length);
         
-        LayerContext ctx3 = dropout.forward(input2560);
+        LayerContext ctx3 = dropout.forward(input2560, false);
         assertEquals(2560, ctx3.outputs().length);
     }
     
@@ -39,12 +39,12 @@ public class DropoutLayerDynamicSizeTest {
         
         // Should accept correct size
         float[] correctInput = new float[128];
-        LayerContext ctx = dropout.forward(correctInput);
+        LayerContext ctx = dropout.forward(correctInput, false);
         assertEquals(128, ctx.outputs().length);
         
         // Should reject incorrect size
         float[] wrongInput = new float[256];
-        assertThrows(IllegalArgumentException.class, () -> dropout.forward(wrongInput));
+        assertThrows(IllegalArgumentException.class, () -> dropout.forward(wrongInput, false));
     }
     
     @Test
@@ -54,12 +54,12 @@ public class DropoutLayerDynamicSizeTest {
         
         // GRU all timesteps: sequence_length * hidden_size
         float[] gruAllTimesteps = new float[20 * 128]; // 2560
-        LayerContext ctx1 = dropout.forward(gruAllTimesteps);
+        LayerContext ctx1 = dropout.forward(gruAllTimesteps, false);
         assertEquals(2560, ctx1.outputs().length);
         
         // GRU last timestep: just hidden_size  
         float[] gruLastTimestep = new float[128];
-        LayerContext ctx2 = dropout.forward(gruLastTimestep);
+        LayerContext ctx2 = dropout.forward(gruLastTimestep, false);
         assertEquals(128, ctx2.outputs().length);
     }
     
@@ -72,7 +72,7 @@ public class DropoutLayerDynamicSizeTest {
         for (int i = 0; i < input.length; i++) {
             input[i] = 1.0f;
         }
-        LayerContext ctx = dropout.forward(input);
+        LayerContext ctx = dropout.forward(input, true);
         
         // Backward should handle same size
         float[] upstreamGrad = new float[256];

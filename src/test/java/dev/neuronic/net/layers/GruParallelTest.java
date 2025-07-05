@@ -27,7 +27,7 @@ class GruParallelTest {
         }
         
         // Test sequential execution
-        Layer.LayerContext sequentialResult = gru.forward(input);
+        Layer.LayerContext sequentialResult = gru.forward(input, false);
         
         // Test parallel execution with ExecutorService
         ExecutorService executor = Executors.newFixedThreadPool(3);
@@ -56,7 +56,7 @@ class GruParallelTest {
         }
         
         // Forward pass
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         
         // Create upstream gradient
         float[] upstreamGrad = new float[128 * 2]; // 2 timesteps * hiddenSize
@@ -106,7 +106,7 @@ class GruParallelTest {
         
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Layer.LayerContext result1 = gru.forward(input);
+            Layer.LayerContext result1 = gru.forward(input, false);
             Layer.LayerContext result2 = gru.forward(input, executor);
             
             // Should produce identical results since it falls back to sequential

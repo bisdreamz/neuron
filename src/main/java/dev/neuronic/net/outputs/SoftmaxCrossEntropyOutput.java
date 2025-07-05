@@ -68,7 +68,7 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Allocate new arrays for LayerContext - never use ThreadLocal buffers in contexts
         float[] logits = new float[neurons];
         NetMath.matrixPreActivationsColumnMajor(input, weights, biases, logits);

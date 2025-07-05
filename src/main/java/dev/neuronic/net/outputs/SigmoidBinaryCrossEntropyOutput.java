@@ -27,7 +27,7 @@ import java.io.IOException;
  * - > 0.5: Positive class
  * - < 0.5: Negative class
  */
-public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable {
+public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable, RegressionOutput {
     
     private final Optimizer optimizer;
     private final float[][] weights;
@@ -50,7 +50,7 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Allocate new arrays for LayerContext - never use ThreadLocal buffers in contexts
         float[] logit = new float[1];
         logit[0] = biases[0];

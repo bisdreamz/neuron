@@ -277,7 +277,7 @@ public class GruLayer implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         validateInputs(input);
         
         int seqLen = input.length / inputSize;
@@ -472,7 +472,7 @@ public class GruLayer implements Layer, Serializable {
         boolean useParallel = shouldUseParallel(executor, seqLen);
         if (!useParallel) {
             // Use sequential implementation for small work sizes or no executor
-            return forward(input);
+            return forward(input, false);
         }
         
         // For large work sizes, parallelize gate computations within each timestep
@@ -1495,7 +1495,7 @@ public class GruLayer implements Layer, Serializable {
                         System.arraycopy(batchInput, b * seqLen * inputSize, sequenceInput, 0, seqLen * inputSize);
                         
                         // Process sequence independently
-                        LayerContext context = forward(sequenceInput);
+                        LayerContext context = forward(sequenceInput, false);
                         batchContexts[b] = context;
                         
                         // Copy outputs to batch output array
@@ -1515,7 +1515,7 @@ public class GruLayer implements Layer, Serializable {
                 float[] sequenceInput = new float[seqLen * inputSize];
                 System.arraycopy(batchInput, b * seqLen * inputSize, sequenceInput, 0, seqLen * inputSize);
                 
-                LayerContext context = forward(sequenceInput);
+                LayerContext context = forward(sequenceInput, false);
                 batchContexts[b] = context;
                 
                 System.arraycopy(context.outputs(), 0, batchOutputs, b * seqLen * hiddenSize, seqLen * hiddenSize);

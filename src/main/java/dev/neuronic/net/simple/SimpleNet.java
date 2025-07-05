@@ -16,6 +16,7 @@ import dev.neuronic.net.training.VisualizationCallback;
 import dev.neuronic.net.layers.MixedFeatureInputLayer;
 import dev.neuronic.net.layers.Feature;
 import dev.neuronic.net.Dictionary;
+import dev.neuronic.net.LRUDictionary;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -173,7 +174,11 @@ public abstract class SimpleNet<T> implements Serializable {
             for (int i = 0; i < featureNames.length; i++) {
                 if (features[i].getType() == Feature.Type.EMBEDDING || 
                     features[i].getType() == Feature.Type.ONEHOT) {
-                    featureDictionaries.put(featureNames[i], new Dictionary());
+                    // Use LRUDictionary if feature requests it
+                    Dictionary dict = features[i].isLRU() 
+                        ? new LRUDictionary(features[i].getMaxUniqueValues(), features[i].getMaxUniqueValues())
+                        : new Dictionary(features[i].getMaxUniqueValues());
+                    featureDictionaries.put(featureNames[i], dict);
                 }
             }
         } else {
@@ -372,8 +377,22 @@ public abstract class SimpleNet<T> implements Serializable {
                 case ONEHOT:
                     // Use the float value as dictionary key
                     Dictionary dict = featureDictionaries.get(featureNames[i]);
-                    int index = dict.getIndex(input[i]); // Float auto-boxed to Float object
-                    modelInput[i] = (float) index;
+                    try {
+                        int index = dict.getIndex(input[i]); // Float auto-boxed to Float object
+                        modelInput[i] = (float) index;
+                    } catch (IllegalStateException e) {
+                        // Dictionary is full - provide helpful error message
+                        if (!features[i].isLRU() && e.getMessage().contains("Dictionary is full")) {
+                            throw new IllegalStateException(String.format(
+                                "Dictionary for feature '%s' has grown to %d entries, exceeding maxUniqueValues=%d. " +
+                                "This indicates unbounded vocabulary growth. Consider: " +
+                                "1) Using Feature.hashedEmbedding() instead for high-cardinality features, " +
+                                "2) Pre-processing data to limit unique values, or " +
+                                "3) Using Feature.embeddingLRU() or Feature.oneHotLRU() for online learning.",
+                                featureNames[i], dict.size(), features[i].getMaxUniqueValues()));
+                        }
+                        throw e; // Re-throw if it's a different error
+                    }
                     break;
                 default:
                     // PASSTHROUGH, AUTO_NORMALIZE, SCALE_BOUNDED
@@ -422,8 +441,22 @@ public abstract class SimpleNet<T> implements Serializable {
                 case EMBEDDING:
                 case ONEHOT:
                     Dictionary dict = featureDictionaries.get(featureName);
-                    int index = dict.getIndex(value);
-                    modelInput[i] = (float) index;
+                    try {
+                        int index = dict.getIndex(value);
+                        modelInput[i] = (float) index;
+                    } catch (IllegalStateException e) {
+                        // Dictionary is full - provide helpful error message
+                        if (!features[i].isLRU() && e.getMessage().contains("Dictionary is full")) {
+                            throw new IllegalStateException(String.format(
+                                "Dictionary for feature '%s' has grown to %d entries, exceeding maxUniqueValues=%d. " +
+                                "This indicates unbounded vocabulary growth. Consider: " +
+                                "1) Using Feature.hashedEmbedding() instead for high-cardinality features, " +
+                                "2) Pre-processing data to limit unique values, or " +
+                                "3) Using Feature.embeddingLRU() or Feature.oneHotLRU() for online learning.",
+                                featureName, dict.size(), features[i].getMaxUniqueValues()));
+                        }
+                        throw e; // Re-throw if it's a different error
+                    }
                     break;
                     
                 case PASSTHROUGH:
@@ -939,4 +972,5 @@ public abstract class SimpleNet<T> implements Serializable {
                 "Found output size: " + outputLayer.getOutputSize());
         }
     }
+    
 }

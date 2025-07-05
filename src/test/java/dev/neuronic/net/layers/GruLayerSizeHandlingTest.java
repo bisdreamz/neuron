@@ -67,7 +67,7 @@ public class GruLayerSizeHandlingTest {
             
             // Forward pass with flattened sequence
             float[] input = new float[flattenedSize];
-            Layer.LayerContext ctx = gruLayer.forward(input);
+            Layer.LayerContext ctx = gruLayer.forward(input, false);
             
             // Output should be seqLen * hiddenSize
             assertEquals(seqLen * 128, ctx.outputs().length,
@@ -84,7 +84,7 @@ public class GruLayerSizeHandlingTest {
         int[] sizes = {128, 256, 2560, 20 * 128};
         for (int size : sizes) {
             float[] input = new float[size];
-            Layer.LayerContext ctx = dropout.forward(input);
+            Layer.LayerContext ctx = dropout.forward(input, false);
             assertEquals(size, ctx.outputs().length);
         }
     }

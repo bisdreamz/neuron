@@ -95,9 +95,11 @@ class LayersMixedFeatureTest {
 
     @Test
     void testInputAllOneHot() {
-        Layer.Spec spec = Layers.inputAllOneHot(optimizer, 4, 8, 3, 7);
+        Layer.Spec spec = Layers.inputAllOneHot(4, 8, 3, 7);
         
-        Layer layer = spec.create(0);
+        // One-hot features don't need an optimizer, but the layer creation mechanism requires one
+        // We'll use the MixedFeatureInputLayerSpec's createLayer method directly
+        Layer layer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) spec).createLayer(0, null);
         assertEquals(22, layer.getOutputSize()); // 4 + 8 + 3 + 7 = 22
         
         assertTrue(layer instanceof MixedFeatureInputLayer);
@@ -156,7 +158,7 @@ class LayersMixedFeatureTest {
         
         // Test with realistic advertising data
         float[] adFeatures = {12345, 6789, 2, 5, 28.5f};
-        Layer.LayerContext context = inputLayer.forward(adFeatures);
+        Layer.LayerContext context = inputLayer.forward(adFeatures, false);
         
         float[] output = context.outputs();
         assertEquals(109, output.length);
@@ -198,10 +200,11 @@ class LayersMixedFeatureTest {
             Feature.oneHot(2)
         };
         Layer.Spec manualOneHotSpec = Layers.inputMixed(optimizer, manualOneHot);
-        Layer.Spec convenienceOneHotSpec = Layers.inputAllOneHot(optimizer, 3, 5, 2);
+        Layer.Spec convenienceOneHotSpec = Layers.inputAllOneHot(3, 5, 2);
         
         Layer manualOneHotLayer = manualOneHotSpec.create(0);
-        Layer convenienceOneHotLayer = convenienceOneHotSpec.create(0);
+        // One-hot features don't need an optimizer, but the layer creation mechanism requires one
+        Layer convenienceOneHotLayer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) convenienceOneHotSpec).createLayer(0, null);
         
         assertEquals(manualOneHotLayer.getOutputSize(), convenienceOneHotLayer.getOutputSize());
         assertEquals(10, manualOneHotLayer.getOutputSize()); // 3 + 5 + 2 = 10
@@ -232,7 +235,7 @@ class LayersMixedFeatureTest {
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer);
+            Layers.inputAllOneHot();
         });
         
         // Test invalid embedding dimension
@@ -247,7 +250,7 @@ class LayersMixedFeatureTest {
         
         // Test invalid category counts
         assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer, 0);
+            Layers.inputAllOneHot(0);
         });
         
         // Test invalid number of numerical features
@@ -269,7 +272,7 @@ class LayersMixedFeatureTest {
         
         // Forward pass
         float[] input = {5, 1, 2.5f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         assertEquals(8, context.outputs().length); // 4 + 3 + 1 = 8
         

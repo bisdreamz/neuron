@@ -41,6 +41,12 @@ class DenseLayerTest {
             public void setLearningRate(float learningRate) {
                 // No-op for test
             }
+
+            @Override
+            public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
+                                       float[][] gradients, java.util.concurrent.ExecutorService executor) {
+                // No-op for test
+            }
         };
     }
     
@@ -55,7 +61,7 @@ class DenseLayerTest {
         DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 3, 2, WeightInitStrategy.HE);
         float[] input = {1.0f, 2.0f};
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         assertNotNull(context);
         assertArrayEquals(input, context.inputs());
@@ -68,7 +74,7 @@ class DenseLayerTest {
         DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 10, 5, WeightInitStrategy.HE);
         float[] input = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; // Non-zero input
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         
         // Check that weights were initialized (not all zeros)
         boolean hasNonZero = false;
@@ -87,7 +93,7 @@ class DenseLayerTest {
         float[] input = {1.0f, 2.0f};
         
         // Forward pass
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         Layer.LayerContext[] stack = {context};
         
         // Backward pass
@@ -117,8 +123,8 @@ class DenseLayerTest {
         
         float[] input = {1.0f, 1.0f, 1.0f, 1.0f};
         
-        Layer.LayerContext heContext = heLayer.forward(input);
-        Layer.LayerContext xavierContext = xavierLayer.forward(input);
+        Layer.LayerContext heContext = heLayer.forward(input, false);
+        Layer.LayerContext xavierContext = xavierLayer.forward(input, false);
         
         // Both should produce non-zero outputs
         boolean heHasNonZero = false;

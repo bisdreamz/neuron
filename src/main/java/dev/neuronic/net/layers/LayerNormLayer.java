@@ -87,7 +87,7 @@ public class LayerNormLayer implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         if (input.length != size) {
             throw new IllegalArgumentException("Input size mismatch: expected " + size + ", got " + input.length);
         }

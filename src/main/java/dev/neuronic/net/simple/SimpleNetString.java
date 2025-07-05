@@ -108,7 +108,7 @@ public class SimpleNetString extends SimpleNet<String> {
      */
     SimpleNetString(NeuralNet underlyingNet, Set<String> outputNames) {
         super(underlyingNet, outputNames);
-        this.labelDictionary = new Dictionary();
+        this.labelDictionary = new Dictionary(underlyingNet.getOutputLayer().getOutputSize());
     }
     
     /**
@@ -816,13 +816,28 @@ public class SimpleNetString extends SimpleNet<String> {
             int numDictionaries = in.readInt();
             for (int i = 0; i < numDictionaries; i++) {
                 String featureName = in.readUTF();
-                Dictionary dict = Dictionary.readFrom(in);
+                
+                // Find the feature index and get maxBounds
+                int featureIndex = -1;
+                for (int j = 0; j < simpleNet.featureNames.length; j++) {
+                    if (simpleNet.featureNames[j].equals(featureName)) {
+                        featureIndex = j;
+                        break;
+                    }
+                }
+                if (featureIndex == -1) {
+                    throw new IOException("Unknown feature name in serialized data: " + featureName);
+                }
+                
+                int maxBounds = simpleNet.features[featureIndex].getMaxUniqueValues();
+                Dictionary dict = Dictionary.readFrom(in, maxBounds);
                 simpleNet.featureDictionaries.put(featureName, dict);
             }
         }
         
         // Read label dictionary and replace the empty one
-        Dictionary loadedLabelDict = Dictionary.readFrom(in);
+        int labelMaxBounds = simpleNet.underlyingNet.getOutputLayer().getOutputSize();
+        Dictionary loadedLabelDict = Dictionary.readFrom(in, labelMaxBounds);
         // Since labelDictionary is final, we need to copy its contents
         for (int i = 0; i < loadedLabelDict.size(); i++) {
             Object value = loadedLabelDict.getValue(i);

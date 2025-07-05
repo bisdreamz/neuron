@@ -97,18 +97,18 @@ class MixedFeatureValidationTest {
     void testInputAllOneHotValidation() {
         // Test null category sizes
         assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer, (int[]) null);
+            Layers.inputAllOneHot((int[]) null);
         });
 
         // Test empty category sizes
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer);
+            Layers.inputAllOneHot();
         });
         assertTrue(exception.getMessage().contains("At least one feature must be configured"));
 
         // Test invalid category size
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            Layers.inputAllOneHot(optimizer, 4, -1, 8);
+            Layers.inputAllOneHot(4, -1, 8);
         });
         assertTrue(exception.getMessage().contains("Feature 1: numberOfCategories must be positive"));
     }
@@ -141,18 +141,18 @@ class MixedFeatureValidationTest {
 
         // Test null input
         assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(null);
+            layer.forward(null, false);
         });
 
         // Test wrong input size with helpful error message
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{1.0f, 2.0f}); // Too few inputs
+            layer.forward(new float[]{1.0f, 2.0f}, false); // Too few inputs
         });
         assertTrue(exception.getMessage().contains("Input array has 2 elements but 3 features were configured"));
         assertTrue(exception.getMessage().contains("Expected input format"));
 
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{1.0f, 2.0f, 3.0f, 4.0f}); // Too many inputs
+            layer.forward(new float[]{1.0f, 2.0f, 3.0f, 4.0f}, false); // Too many inputs
         });
         assertTrue(exception.getMessage().contains("Input array has 4 elements but 3 features were configured"));
     }
@@ -164,21 +164,21 @@ class MixedFeatureValidationTest {
 
         // Test negative embedding value
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{-1.0f});
+            layer.forward(new float[]{-1.0f}, false);
         });
         assertTrue(exception.getMessage().contains("Feature 0 (embedding): value -1 is out of range"));
         assertTrue(exception.getMessage().contains("Embedding features expect token/category IDs"));
 
         // Test embedding value too large
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{10.0f}); // vocab size is 10, so valid range is 0-9
+            layer.forward(new float[]{10.0f}, false); // vocab size is 10, so valid range is 0-9
         });
         assertTrue(exception.getMessage().contains("Feature 0 (embedding): value 10 is out of range [0, 10)"));
         assertTrue(exception.getMessage().contains("increase maxUniqueValues to 11"));
 
         // Test non-integer embedding value
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{5.5f});
+            layer.forward(new float[]{5.5f}, false);
         });
         assertTrue(exception.getMessage().contains("Feature 0 (EMBEDDING): input must be integer, got 5.50"));
         assertTrue(exception.getMessage().contains("Use Feature.passthrough(), Feature.autoScale(minBound, maxBound), or Feature.autoNormalize() for continuous numerical values"));
@@ -191,20 +191,20 @@ class MixedFeatureValidationTest {
 
         // Test negative one-hot value
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{-1.0f});
+            layer.forward(new float[]{-1.0f}, false);
         });
         assertTrue(exception.getMessage().contains("Feature 0 (oneHot): value -1 is out of range"));
 
         // Test one-hot value too large
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{3.0f}); // 3 categories, so valid range is 0-2
+            layer.forward(new float[]{3.0f}, false); // 3 categories, so valid range is 0-2
         });
         assertTrue(exception.getMessage().contains("Feature 0 (oneHot): value 3 is out of range [0, 3)"));
         assertTrue(exception.getMessage().contains("increase numberOfCategories to 4"));
 
         // Test non-integer one-hot value
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{1.5f});
+            layer.forward(new float[]{1.5f}, false);
         });
         assertTrue(exception.getMessage().contains("Feature 0 (ONEHOT): input must be integer, got 1.50"));
     }
@@ -216,15 +216,15 @@ class MixedFeatureValidationTest {
 
         // Passthrough should accept any float value
         assertDoesNotThrow(() -> {
-            layer.forward(new float[]{-123.456f});
+            layer.forward(new float[]{-123.456f}, false);
         });
 
         assertDoesNotThrow(() -> {
-            layer.forward(new float[]{Float.MAX_VALUE});
+            layer.forward(new float[]{Float.MAX_VALUE}, false);
         });
 
         assertDoesNotThrow(() -> {
-            layer.forward(new float[]{0.0f});
+            layer.forward(new float[]{0.0f}, false);
         });
     }
 
@@ -240,21 +240,21 @@ class MixedFeatureValidationTest {
 
         // Test embedding error includes feature index
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{150.0f, 2.0f, 3.14f});
+            layer.forward(new float[]{150.0f, 2.0f, 3.14f}, false);
         });
         assertTrue(exception.getMessage().contains("Feature 0 (embedding)"));
         assertTrue(exception.getMessage().contains("value 150 is out of range"));
 
         // Test one-hot error includes feature index
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{50.0f, 5.0f, 3.14f});
+            layer.forward(new float[]{50.0f, 5.0f, 3.14f}, false);
         });
         assertTrue(exception.getMessage().contains("Feature 1 (oneHot)"));
         assertTrue(exception.getMessage().contains("value 5 is out of range"));
 
         // Test non-integer error includes feature index and type
         exception = assertThrows(IllegalArgumentException.class, () -> {
-            layer.forward(new float[]{50.5f, 2.0f, 3.14f});
+            layer.forward(new float[]{50.5f, 2.0f, 3.14f}, false);
         });
         assertTrue(exception.getMessage().contains("Feature 0 (EMBEDDING)"));
         assertTrue(exception.getMessage().contains("input must be integer, got 50.50"));
@@ -273,7 +273,7 @@ class MixedFeatureValidationTest {
 
         // Valid input should work without exceptions
         assertDoesNotThrow(() -> {
-            Layer.LayerContext context = layer.forward(new float[]{42.0f, 2.0f, 3.14159f});
+            Layer.LayerContext context = layer.forward(new float[]{42.0f, 2.0f, 3.14159f}, false);
             assertEquals(13, context.outputs().length); // 8 + 4 + 1 = 13
         });
     }

@@ -15,15 +15,20 @@ public final class WeightInitHeVector implements WeightInitHe.Impl {
     
     @Override
     public void compute(float[][] weights, int fanIn) {
+        compute(weights, fanIn, 0.0f);
+    }
+
+    @Override
+    public void compute(float[][] weights, int fanIn, float noiseLevel) {
         if (fanIn <= 0)
             throw new IllegalArgumentException("fanIn must be positive, got: " + fanIn);
         
         float scale = (float) Math.sqrt(2.0 / fanIn);
         
         if (shouldUseVectorized(weights))
-            computeVectorized(weights, scale);
+            computeVectorized(weights, scale, noiseLevel);
         else
-            computeScalar(weights, scale);
+            computeScalar(weights, scale, noiseLevel);
     }
     
     private boolean shouldUseVectorized(float[][] weights) {
@@ -34,7 +39,7 @@ public final class WeightInitHeVector implements WeightInitHe.Impl {
         return false;
     }
 
-    private void computeVectorized(float[][] weights, float scale) {
+    private void computeVectorized(float[][] weights, float scale, float noiseLevel) {
         VectorSpecies<Float> species = Vectorization.getSpecies();
         FloatVector scaleV = FloatVector.broadcast(species, scale);
         float[] tmp = new float[species.length()];
@@ -42,21 +47,21 @@ public final class WeightInitHeVector implements WeightInitHe.Impl {
         
         for (float[] row : weights) {
             if (Vectorization.shouldVectorize(row.length))
-                computeRowVectorized(row, scaleV, tmp, rnd);
+                computeRowVectorized(row, scaleV, tmp, rnd, noiseLevel);
             else
-                computeRowScalar(row, scale, rnd);
+                computeRowScalar(row, scale, rnd, noiseLevel);
         }
     }
     
-    private void computeScalar(float[][] weights, float scale) {
+    private void computeScalar(float[][] weights, float scale, float noiseLevel) {
         RandomGenerator rnd = FastRandom.get();
         
         for (float[] row : weights)
-            computeRowScalar(row, scale, rnd);
+            computeRowScalar(row, scale, rnd, noiseLevel);
     }
     
     private void computeRowVectorized(float[] row, FloatVector scaleV, 
-                                           float[] tmp, RandomGenerator rnd) {
+                                           float[] tmp, RandomGenerator rnd, float noiseLevel) {
         VectorSpecies<Float> species = Vectorization.getSpecies();
         int len = row.length;
         int upper = Vectorization.loopBound(len);
@@ -65,18 +70,21 @@ public final class WeightInitHeVector implements WeightInitHe.Impl {
         int i = 0;
         for (; i < upper; i += species.length()) {
             FastRandom.fillGaussian(tmp, 0f, 1f);
+            float[] noise = new float[species.length()];
+            FastRandom.fillUniform(noise, -0.5f, 0.5f);
             
             FloatVector.fromArray(species, tmp, 0)
                     .mul(scaleV)
+                    .add(FloatVector.fromArray(species, noise, 0).mul(noiseLevel))
                     .intoArray(row, i);
         }
 
         for (; i < len; i++)
-            row[i] = (float)(rnd.nextGaussian() * scale);
+            row[i] = (float)(rnd.nextGaussian() * scale) + (rnd.nextFloat() - 0.5f) * noiseLevel;
     }
 
-    private void computeRowScalar(float[] row, float scale, RandomGenerator rnd) {
+    private void computeRowScalar(float[] row, float scale, RandomGenerator rnd, float noiseLevel) {
         for (int i = 0; i < row.length; i++)
-            row[i] = (float)(rnd.nextGaussian() * scale);
+            row[i] = (float)(rnd.nextGaussian() * scale) + (rnd.nextFloat() - 0.5f) * noiseLevel;
     }
 }

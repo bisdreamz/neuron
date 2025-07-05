@@ -7,6 +7,7 @@ import dev.neuronic.net.simple.SimpleNetInt;
 import dev.neuronic.net.simple.SimpleNetTrainingConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.knowm.datasets.mnist.Mnist;
 import org.knowm.datasets.mnist.MnistDAO;
 
@@ -25,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * End-to-end test that trains a neural network on MNIST and verifies accuracy > 90%.
  * This test requires the MNIST dataset to be available in src/test/resources/datasets/
  */
-@org.junit.jupiter.api.TestMethodOrder(org.junit.jupiter.api.MethodOrderer.OrderAnnotation.class)
+@TestMethodOrder(org.junit.jupiter.api.MethodOrderer.OrderAnnotation.class)
 class MnistEndToEndTest {
 
     static {

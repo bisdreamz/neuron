@@ -71,6 +71,11 @@
             <artifactId>zstd-jni</artifactId>
             <version>1.5.5-11</version>
         </dependency>
+        <dependency>
+            <groupId>net.openhft</groupId>
+            <artifactId>zero-allocation-hashing</artifactId>
+            <version>0.16</version>
+        </dependency>
     </dependencies>
 
     <build>

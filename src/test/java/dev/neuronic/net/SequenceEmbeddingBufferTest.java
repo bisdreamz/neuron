@@ -39,14 +39,14 @@ public class SequenceEmbeddingBufferTest {
         float[] sequence3 = {tokenC, tokenA, tokenB}; // c, a, b
         
         // Test forward pass multiple times to check for buffer corruption
-        Layer.LayerContext result1a = embeddingLayer.forward(sequence1);
-        Layer.LayerContext result2a = embeddingLayer.forward(sequence2);
-        Layer.LayerContext result3a = embeddingLayer.forward(sequence3);
+        Layer.LayerContext result1a = embeddingLayer.forward(sequence1, false);
+        Layer.LayerContext result2a = embeddingLayer.forward(sequence2, false);
+        Layer.LayerContext result3a = embeddingLayer.forward(sequence3, false);
         
         // Call forward again with same inputs - results should be identical
-        Layer.LayerContext result1b = embeddingLayer.forward(sequence1);
-        Layer.LayerContext result2b = embeddingLayer.forward(sequence2);
-        Layer.LayerContext result3b = embeddingLayer.forward(sequence3);
+        Layer.LayerContext result1b = embeddingLayer.forward(sequence1, false);
+        Layer.LayerContext result2b = embeddingLayer.forward(sequence2, false);
+        Layer.LayerContext result3b = embeddingLayer.forward(sequence3, false);
         
         System.out.println("Sequence 'a b c' first call:  " + Arrays.toString(result1a.outputs()));
         System.out.println("Sequence 'a b c' second call: " + Arrays.toString(result1b.outputs()));
@@ -88,10 +88,10 @@ public class SequenceEmbeddingBufferTest {
         float[] sequence2 = {tokenB, tokenC, tokenA};
         
         // Get contexts and store them
-        Layer.LayerContext context1 = embeddingLayer.forward(sequence1);
+        Layer.LayerContext context1 = embeddingLayer.forward(sequence1, false);
         float[] savedOutput1 = context1.outputs().clone(); // Save a copy
         
-        Layer.LayerContext context2 = embeddingLayer.forward(sequence2);
+        Layer.LayerContext context2 = embeddingLayer.forward(sequence2, false);
         float[] savedOutput2 = context2.outputs().clone(); // Save a copy
         
         // Verify the first context wasn't corrupted by the second call
@@ -99,7 +99,7 @@ public class SequenceEmbeddingBufferTest {
             "First LayerContext should not be corrupted by subsequent forward calls");
         
         // Call forward again and check that stored contexts are still intact
-        embeddingLayer.forward(sequence1);
+        embeddingLayer.forward(sequence1, false);
         
         assertArrayEquals(savedOutput1, context1.outputs(), 1e-7f,
             "Stored LayerContext should remain intact after more forward calls");

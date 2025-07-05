@@ -1,8 +1,6 @@
 package dev.neuronic.net.math;
 
-import jdk.incubator.vector.FloatVector;
-import jdk.incubator.vector.VectorSpecies;
-
+import java.lang.reflect.Method;
 import java.util.random.RandomGenerator;
 import java.util.random.RandomGeneratorFactory;
 
@@ -18,6 +16,23 @@ public final class FastRandom {
     private static final ThreadLocal<RandomGenerator> RNG = ThreadLocal.withInitial(() ->
             RandomGeneratorFactory.of("Xoroshiro128PlusPlus").create()
     );
+    
+    // Cached vectorized method for fillUniform
+    private static final Method VECTOR_FILL_UNIFORM;
+    
+    static {
+        Method vectorFillUniform = null;
+        if (Vectorization.isAvailable()) {
+            try {
+                Class<?> vectorClass = Class.forName("dev.neuronic.net.math.vector.FastRandomVector");
+                vectorFillUniform = vectorClass.getMethod("fillUniform", 
+                        float[].class, float.class, float.class, RandomGenerator.class);
+            } catch (Exception e) {
+                // Vector implementation not available, fall back to scalar
+            }
+        }
+        VECTOR_FILL_UNIFORM = vectorFillUniform;
+    }
 
     /** Grab the thread-local PRNG if you need it directly. */
     public static RandomGenerator get() {
@@ -30,30 +45,21 @@ public final class FastRandom {
     public static void fillUniform(float[] buffer, float min, float max) {
         RandomGenerator rnd = RNG.get();
         int len = buffer.length;
+        
+        // Try vectorized implementation if available and worthwhile
+        if (VECTOR_FILL_UNIFORM != null && len >= Vectorization.getVectorLength() * 2) {
+            try {
+                VECTOR_FILL_UNIFORM.invoke(null, buffer, min, max, rnd);
+                return;
+            } catch (Exception e) {
+                // Fall back to scalar on any error
+            }
+        }
+        
+        // Scalar implementation
         float range = max - min;
-
-        if (Vectorization.isAvailable() && len >= Vectorization.getVectorLength()*2) {
-            VectorSpecies<Float> species = Vectorization.getSpecies();
-            int upper = Vectorization.loopBound(len);
-            FloatVector minV   = FloatVector.broadcast(species, min);
-            FloatVector rangeV = FloatVector.broadcast(species, range);
-            float[] tmp = new float[species.length()];
-
-            int i = 0;
-            for (; i < upper; i += species.length()) {
-                for (int j = 0; j < tmp.length; j++) tmp[j] = rnd.nextFloat();
-                FloatVector.fromArray(species, tmp, 0)
-                        .mul(rangeV)
-                        .add(minV)
-                        .intoArray(buffer, i);
-            }
-            for (; i < len; i++) {
-                buffer[i] = rnd.nextFloat()*range + min;
-            }
-        } else {
-            for (int i = 0; i < len; i++) {
-                buffer[i] = rnd.nextFloat()*range + min;
-            }
+        for (int i = 0; i < len; i++) {
+            buffer[i] = rnd.nextFloat() * range + min;
         }
     }
 

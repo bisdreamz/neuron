@@ -154,11 +154,14 @@ public class OneHotOnlyMixedLayerTest {
         float pred0Initial = model.predictFloat(input0);
         float pred1Initial = model.predictFloat(input1);
         
-        // Train with feature=0 -> target=0
-        model.train(input0, 0.0f);
-        
-        // Train with feature=1 -> target=1
-        model.train(input1, 1.0f);
+        // Train multiple times to ensure learning
+        for (int i = 0; i < 10; i++) {
+            // Train with feature=0 -> target=0
+            model.train(input0, 0.0f);
+            
+            // Train with feature=1 -> target=1
+            model.train(input1, 1.0f);
+        }
         
         // Check that training changed predictions
         float pred0Final = model.predictFloat(input0);

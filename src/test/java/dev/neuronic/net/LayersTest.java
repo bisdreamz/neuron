@@ -33,7 +33,7 @@ class LayersTest {
             input[i] = (float) Math.random() - 0.5f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(128, context.outputs().length);
         
         // ReLU should produce non-negative outputs
@@ -57,7 +57,7 @@ class LayersTest {
             input[i] = (float) Math.random() * 2.0f - 1.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(64, context.outputs().length);
         
         // Tanh should produce outputs in range (-1, 1)
@@ -82,7 +82,7 @@ class LayersTest {
             input[i] = (float) Math.random() * 4.0f - 2.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(32, context.outputs().length);
         
         // Sigmoid should produce outputs in range (0, 1)
@@ -107,7 +107,7 @@ class LayersTest {
             input[i] = (float) Math.random() * 2.0f - 1.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(16, context.outputs().length);
         
         // Linear activation should not constrain output range
@@ -136,7 +136,7 @@ class LayersTest {
             input[i] = (float) Math.random() * 2.0f - 1.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(10, context.outputs().length);
         
         // Softmax outputs should sum to 1
@@ -164,7 +164,7 @@ class LayersTest {
             input[i] = (float) Math.random() * 2.0f - 1.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(1, context.outputs().length);
         
         // Linear regression can output any value
@@ -188,7 +188,7 @@ class LayersTest {
             input[i] = (float) Math.random() * 4.0f - 2.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(1, context.outputs().length);
         
         // Sigmoid output should be in range (0, 1)
@@ -213,7 +213,7 @@ class LayersTest {
             input[i] = (float) Math.random() * 4.0f - 2.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, false);
         assertEquals(5, context.outputs().length);
         
         // Each output should be sigmoid probability in range (0, 1)

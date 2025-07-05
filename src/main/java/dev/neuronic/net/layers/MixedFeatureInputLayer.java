@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.common.PooledFloatArray;
+import dev.neuronic.net.common.PooledFloatArray3D;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.AdamOptimizer;
@@ -19,7 +20,10 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * Mixed feature input layer for advertising and recommendation systems.
@@ -58,21 +62,40 @@ import java.util.concurrent.ExecutorService;
  * float[] output = context.outputs(); // [64 + 32 + 4 + 8 + 1 + 1 + 1] = 111-dimensional feature vector
  * }</pre>
  */
-public class MixedFeatureInputLayer implements Layer, Serializable {
+public class MixedFeatureInputLayer implements Layer, Serializable, GradientProvider {
     
-    private final Optimizer optimizer;
+    private final Optimizer[] featureOptimizers; // One optimizer per feature
     private final Feature[] features;
     private final float[][][] embeddings; // [featureIndex][valueIndex][embeddingDim] - only for embedding features
     private final int totalOutputDimension;
     // Instance buffer pool for output dimension arrays
     private final PooledFloatArray outputBufferPool;
-    // Note: embeddingGradientBuffers needs to remain ThreadLocal as it's accumulated state
-    private final ThreadLocal<float[][][]> embeddingGradientBuffers;
+    // Pool for embedding gradient buffers - replaces ThreadLocal to avoid memory leaks
+    private final PooledFloatArray3D[] embeddingGradientPools; // One pool per embedding feature
     
-    // Scaling statistics for AUTO_NORMALIZE features
-    private final float[] featureMean;    // For AUTO_NORMALIZE: running mean values
-    private final float[] featureVariance; // For AUTO_NORMALIZE: running variance values
-    private final long[] featureCount;    // Sample count for each feature
+    // Scaling statistics for AUTO_NORMALIZE features - thread-safe via atomic operations
+    private final AtomicReferenceArray<NormalizationStats> featureStats; // Thread-safe stats per feature
+    
+    // Helper class for thread-safe normalization statistics
+    private static class NormalizationStats {
+        volatile double mean = 0.0;
+        volatile double variance = 0.0;
+        volatile long count = 0;
+    }
+    
+    // Gradient clipping for embeddings
+    // private float embeddingGradientClipNorm = 0.0f; // 0 = disabled - REMOVED in favor of global clipping
+    
+    
+    // Thread-local gradient accumulation to avoid race conditions
+    private static class GradientAccumulator {
+        float[][][][] gradientBuffers;
+        boolean[] hasGradients;
+        List<Set<Integer>> touchedIndices;
+        int batchSampleCount;
+    }
+    
+    private final ThreadLocal<GradientAccumulator> gradientAccumulators = ThreadLocal.withInitial(GradientAccumulator::new);
     
     /**
      * Create a mixed feature input layer.
@@ -122,7 +145,15 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     i, feature.getMaxUniqueValues()));
         }
         
-        this.optimizer = optimizer;
+        // Initialize per-feature optimizers
+        this.featureOptimizers = new Optimizer[features.length];
+        for (int i = 0; i < features.length; i++) {
+            if (features[i].hasLearnableParameters()) {
+                this.featureOptimizers[i] = optimizer.forEmbeddings();
+            }
+            // null for features without learnable parameters
+        }
+        
         this.features = features.clone(); // Defensive copy
         this.totalOutputDimension = calculateTotalOutputDimension(features);
         
@@ -132,45 +163,40 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         // Initialize embedding tables only for embedding features
         this.embeddings = new float[features.length][][];
         for (int i = 0; i < features.length; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
+            if (features[i].hasLearnableParameters()) {
                 int maxValues = features[i].getMaxUniqueValues();
                 int embeddingDim = features[i].getEmbeddingDimension();
                 this.embeddings[i] = new float[maxValues][embeddingDim];
                 
-                // Initialize embeddings with chosen strategy
-                switch (initStrategy) {
-                    case XAVIER -> NetMath.weightInitXavier(embeddings[i], embeddingDim, embeddingDim);
-                    case HE -> NetMath.weightInitHe(embeddings[i], embeddingDim);
-                }
+                // Initialize embeddings with uniform distribution for better learning
+                // Embeddings need different initialization than dense layers
+                NetMath.embeddingInitUniform(embeddings[i], -0.05f, 0.05f);
+                //NetMath.weightInitXavier(embeddings[i], embeddingDim, embeddingDim);
             }
         }
         
         // Initialize scaling statistics arrays for AUTO_NORMALIZE features
-        this.featureMean = new float[features.length];
-        this.featureVariance = new float[features.length];
-        this.featureCount = new long[features.length];
+        this.featureStats = new AtomicReferenceArray<>(features.length);
         
-        // Initialize scaling arrays with appropriate defaults
+        // Initialize stats for each feature
         for (int i = 0; i < features.length; i++) {
-            featureMean[i] = 0.0f;
-            featureVariance[i] = 0.0f;
-            featureCount[i] = 0;
+            featureStats.set(i, new NormalizationStats());
         }
         
         // Initialize buffer pool for outputs
         this.outputBufferPool = new PooledFloatArray(totalOutputDimension);
-        // ThreadLocal for gradient accumulation (required for thread-specific state)
-        this.embeddingGradientBuffers = ThreadLocal.withInitial(() -> {
-            float[][][] buffers = new float[features.length][][];
-            for (int i = 0; i < features.length; i++) {
-                if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
-                    int maxValues = features[i].getMaxUniqueValues();
-                    int embeddingDim = features[i].getEmbeddingDimension();
-                    buffers[i] = new float[maxValues][embeddingDim];
-                }
+        
+        // Initialize pools for embedding gradient buffers
+        this.embeddingGradientPools = new PooledFloatArray3D[features.length];
+        for (int i = 0; i < features.length; i++) {
+            if (features[i].hasLearnableParameters()) {
+                int maxValues = features[i].getMaxUniqueValues();
+                int embeddingDim = features[i].getEmbeddingDimension();
+                // Create a pool that manages 3D arrays of shape [1][maxValues][embeddingDim]
+                // We use dim1=1 since each thread needs its own buffer
+                this.embeddingGradientPools[i] = new PooledFloatArray3D(1, maxValues, embeddingDim);
             }
-            return buffers;
-        });
+        }
     }
     
     private static int calculateTotalOutputDimension(Feature[] features) {
@@ -182,7 +208,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Comprehensive input validation with helpful error messages
         if (input == null)
             throw new IllegalArgumentException("Input array cannot be null");
@@ -306,7 +332,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     @Override
     public LayerContext forward(float[] input, ExecutorService executor) {
         // Feature lookups and one-hot encoding are not parallelizable due to simple operations
-        return forward(input);
+        return forward(input, false);
     }
     
     @Override
@@ -319,17 +345,38 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                 "Gradient length mismatch: expected %d, got %d", 
                 totalOutputDimension, upstreamGradient.length));
         
-        float[][][] embeddingGradients = embeddingGradientBuffers.get();
+        // Get thread-local accumulator
+        GradientAccumulator accumulator = gradientAccumulators.get();
         
-        // Clear gradients for embedding features
+        if (accumulator.gradientBuffers == null) {
+            // First backward() call in batch for this thread - initialize tracking
+            accumulator.gradientBuffers = new float[features.length][][][];
+            accumulator.hasGradients = new boolean[features.length];
+            accumulator.touchedIndices = new ArrayList<>(features.length);
+            accumulator.batchSampleCount = 0;
+            
+            // Initialize touched indices tracking for each feature
+            for (int i = 0; i < features.length; i++) {
+                if (features[i].hasLearnableParameters()) {
+                    accumulator.touchedIndices.add(new HashSet<>());
+                    accumulator.hasGradients[i] = true;
+                    // Lazy allocation - don't get buffer until we actually need it
+                } else {
+                    accumulator.touchedIndices.add(null); // No tracking needed for non-embedding features
+                }
+            }
+        }
+        
+        // Increment batch sample count
+        accumulator.batchSampleCount++;
+        
+        // Ensure gradient buffers are allocated for embedding features
         for (int i = 0; i < features.length; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
-                int maxValues = features[i].getMaxUniqueValues();
-                int embeddingDim = features[i].getEmbeddingDimension();
-                for (int j = 0; j < maxValues; j++) {
-                    for (int k = 0; k < embeddingDim; k++) {
-                        embeddingGradients[i][j][k] = 0.0f;
-                    }
+            if (accumulator.hasGradients[i]) {
+                // Lazy allocation - allocate buffer on first actual use
+                if (accumulator.gradientBuffers[i] == null) {
+                    float[][][] buffer3D = embeddingGradientPools[i].getBuffer();
+                    accumulator.gradientBuffers[i] = buffer3D;
                 }
             }
         }
@@ -345,8 +392,12 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     int inputValue = (int) inputFloats[featureIndex];
                     int embeddingDim = feature.getEmbeddingDimension();
                     
+                    // Track that this embedding index was used
+                    accumulator.touchedIndices.get(featureIndex).add(inputValue);
+                    
+                    float[][] featureGradients = accumulator.gradientBuffers[featureIndex][0];
                     for (int j = 0; j < embeddingDim; j++) {
-                        embeddingGradients[featureIndex][inputValue][j] += upstreamGradient[gradientPosition + j];
+                        featureGradients[inputValue][j] += upstreamGradient[gradientPosition + j];
                     }
                     gradientPosition += embeddingDim;
                 }
@@ -368,22 +419,17 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                     // Get hash positions
                     int[] positions = computeHashPositions(hashCode, hashBuckets);
                     
-                    // Debug logging
-                    if (Math.random() < 0.01) { // Log 1% of the time
-                        float gradNorm = 0;
-                        for (int j = 0; j < embeddingDim; j++) {
-                            gradNorm += upstreamGradient[gradientPosition + j] * upstreamGradient[gradientPosition + j];
-                        }
-                        gradNorm = (float) Math.sqrt(gradNorm);
-                        System.out.println("DEBUG: Hashed embedding upstream gradient norm: " + gradNorm + 
-                                         " for feature " + featureIndex + " positions: " + Arrays.toString(positions));
+                    // Track that these embedding indices were used
+                    for (int pos : positions) {
+                        accumulator.touchedIndices.get(featureIndex).add(pos);
                     }
                     
                     // Accumulate gradients for each position (scaled by 1/3)
+                    float[][] featureGradients = accumulator.gradientBuffers[featureIndex][0];
                     float scale = 1.0f / 3.0f;
                     for (int pos : positions) {
                         for (int j = 0; j < embeddingDim; j++) {
-                            embeddingGradients[featureIndex][pos][j] += upstreamGradient[gradientPosition + j] * scale;
+                            featureGradients[pos][j] += upstreamGradient[gradientPosition + j] * scale;
                         }
                     }
                     gradientPosition += embeddingDim;
@@ -391,18 +437,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
             }
         }
         
-        // Update embeddings using optimizer
-        for (int i = 0; i < features.length; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING || features[i].getType() == Feature.Type.HASHED_EMBEDDING) {
-                optimizer.optimize(embeddings[i], new float[0], embeddingGradients[i], new float[0]);
-                
-                // Clear gradients after update - CRITICAL!
-                for (int j = 0; j < embeddingGradients[i].length; j++) {
-                    Arrays.fill(embeddingGradients[i][j], 0.0f);
-                }
-            }
-        }
-        
+        // Gradients are now accumulated in instance buffers
         return null; // Input layer doesn't propagate gradients further
     }
     
@@ -414,6 +449,103 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     @Override
     public int getOutputSize() {
         return totalOutputDimension;
+    }
+    
+    @Override
+    public void applyGradients(float[][] weightGradients, float[] biasGradients) {
+        // Get thread-local accumulator
+        GradientAccumulator accumulator = gradientAccumulators.get();
+        
+        if (accumulator.gradientBuffers == null || accumulator.hasGradients == null) {
+            // No gradients accumulated yet for this thread
+            return;
+        }
+            
+            try {
+                // Process each feature's embeddings
+                for (int i = 0; i < features.length; i++) {
+                    try {
+                    if (!accumulator.hasGradients[i]) {
+                        continue;
+                    }
+                    
+                    Feature feature = features[i];
+                    if (!feature.hasLearnableParameters()) {
+                        continue;
+                    }
+                    
+                    // Skip if no gradients were accumulated (lazy allocation case)
+                    if (accumulator.gradientBuffers[i] == null) {
+                        continue;
+                    }
+                    
+                    // Get touched indices for this feature
+                    Set<Integer> touched = accumulator.touchedIndices.get(i);
+                    if (touched == null || touched.isEmpty()) {
+                        continue; // No embeddings were used
+                    }
+
+                    // Create compact arrays of the indices and gradients that were touched
+                    int numTouched = touched.size();
+                    int[] indicesToUpdate = new int[numTouched];
+                    float[][] touchedGradients = new float[numTouched][];
+                    float batchScale = 1.0f / accumulator.batchSampleCount;
+                    int idx = 0;
+                    for (int embIdx : touched) {
+                        indicesToUpdate[idx] = embIdx;
+                        
+                        // Average the gradients before passing to the optimizer
+                        float[] gradRow = accumulator.gradientBuffers[i][0][embIdx];
+                        float[] scaledGrad = new float[gradRow.length];
+                        for (int j = 0; j < scaledGrad.length; j++) {
+                            scaledGrad[j] = gradRow[j] * batchScale;
+                        }
+                        touchedGradients[idx] = scaledGrad;
+                        idx++;
+                    }
+                    
+                    // Update embeddings using the feature-specific optimizer with a sparse call
+                    if (featureOptimizers[i] != null) {
+                        featureOptimizers[i].sparseOptimize(embeddings[i], embeddings[i], indicesToUpdate, touchedGradients, null);
+                    }
+                    
+                    // Clear only the used gradients
+                    for (int embIdx : touched) {
+                        Arrays.fill(accumulator.gradientBuffers[i][0][embIdx], 0.0f);
+                    }
+                    } catch (Exception e) {
+                        // Log error but continue processing other features
+                        System.err.println("Error processing gradients for feature " + i + ": " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                }
+            } finally {
+                // Release all gradient buffers back to pools
+                for (int i = 0; i < features.length; i++) {
+                    if (accumulator.hasGradients[i] && accumulator.gradientBuffers[i] != null) {
+                        embeddingGradientPools[i].releaseBuffer(accumulator.gradientBuffers[i]);
+                    }
+                }
+                
+                // Clear accumulator for next batch
+                accumulator.gradientBuffers = null;
+                accumulator.hasGradients = null;
+                accumulator.touchedIndices = null;
+                accumulator.batchSampleCount = 0;
+
+                // Remove the accumulator from the thread-local map to prevent memory leaks
+                gradientAccumulators.remove();
+            }
+    }
+    
+    
+    
+    
+    @Override
+    public Layer.GradientDimensions getGradientDimensions() {
+        // Return null - this layer manages its own gradient buffers through pools
+        // Returning dimensions would cause NeuralNet to allocate huge unnecessary buffers
+        return null;
     }
     
     
@@ -589,6 +721,11 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         float minBound = feature.getMinBound();
         float maxBound = feature.getMaxBound();
         
+        // Handle edge case where min and max are equal
+        if (maxBound == minBound) {
+            return 0.5f; // Return midpoint when range is zero
+        }
+        
         // Scale to [0,1] using user-specified bounds
         float scaled = (value - minBound) / (maxBound - minBound);
         
@@ -601,27 +738,41 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
      * Uses Welford's online algorithm for numerical stability.
      * Thread-safe with synchronized updates.
      */
-    private synchronized void updateMeanVarianceStatistics(int featureIndex, float value) {
-        long n = featureCount[featureIndex] + 1;
-        featureCount[featureIndex] = n;
-        
-        // Welford's online algorithm for mean and variance
-        float delta = value - featureMean[featureIndex];
-        featureMean[featureIndex] += delta / n;
-        float delta2 = value - featureMean[featureIndex];
-        featureVariance[featureIndex] += delta * delta2;
+    private void updateMeanVarianceStatistics(int featureIndex, float value) {
+        // Lock-free update using CAS for high concurrency
+        while (true) {
+            NormalizationStats current = featureStats.get(featureIndex);
+            NormalizationStats updated = new NormalizationStats();
+            
+            // Copy and update values using Welford's algorithm
+            long n = current.count + 1;
+            updated.count = n;
+            
+            double delta = value - current.mean;
+            updated.mean = current.mean + delta / n;
+            double delta2 = value - updated.mean;
+            updated.variance = current.variance + delta * delta2;
+            
+            // Try to update atomically
+            if (featureStats.compareAndSet(featureIndex, current, updated)) {
+                break;
+            }
+            // If CAS failed, another thread updated - retry
+        }
     }
     
     /**
      * Apply z-score normalization to transform value to mean=0, std=1.
      */
     private float applyZScoreNormalization(int featureIndex, float value) {
-        if (featureCount[featureIndex] < 2) {
+        NormalizationStats stats = featureStats.get(featureIndex);
+        
+        if (stats.count < 2) {
             return 0.0f; // Not enough data to normalize
         }
         
-        float mean = featureMean[featureIndex];
-        float variance = featureVariance[featureIndex] / (featureCount[featureIndex] - 1);
+        double mean = stats.mean;
+        double variance = stats.variance / (stats.count - 1);
         float std = (float) Math.sqrt(variance);
         
         // Handle edge case where std == 0 (constant feature)
@@ -629,7 +780,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
             return 0.0f;
         }
         
-        return (value - mean) / std;
+        return (float) ((value - mean) / std);
     }
     
     /**
@@ -655,8 +806,8 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
             h *= 0x5bd1e995;
             h ^= h >>> 15;
             
-            // Map to bucket (ensure positive)
-            positions[i] = Math.abs(h) % hashBuckets;
+            // Map to bucket (ensure positive - Math.abs(Integer.MIN_VALUE) is still negative!)
+            positions[i] = Integer.remainderUnsigned(h, hashBuckets);
         }
         
         return positions;
@@ -680,12 +831,14 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         Feature.Type type = features[featureIndex].getType();
         Map<String, Number> stats = new java.util.HashMap<>();
         stats.put("type", type.ordinal());
-        stats.put("count", featureCount[featureIndex]);
+        
+        NormalizationStats normStats = featureStats.get(featureIndex);
+        stats.put("count", normStats.count);
         
         if (type == Feature.Type.AUTO_NORMALIZE) {
-            stats.put("mean", featureMean[featureIndex]);
-            if (featureCount[featureIndex] > 1) {
-                float variance = featureVariance[featureIndex] / (featureCount[featureIndex] - 1);
+            stats.put("mean", normStats.mean);
+            if (normStats.count > 1) {
+                double variance = normStats.variance / (normStats.count - 1);
                 stats.put("variance", variance);
                 stats.put("std", Math.sqrt(variance));
             }
@@ -723,16 +876,17 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
                 }
                 case AUTO_NORMALIZE -> {
                     // Serialize mean/variance statistics
-                    out.writeFloat(featureMean[i]);
-                    out.writeFloat(featureVariance[i]);
-                    out.writeLong(featureCount[i]);
+                    NormalizationStats stats = featureStats.get(i);
+                    out.writeFloat((float) stats.mean);
+                    out.writeFloat((float) stats.variance);
+                    out.writeLong(stats.count);
                 }
             }
         }
         
         // Write embeddings for embedding features
         for (int i = 0; i < features.length; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING) {
+            if (features[i].hasLearnableParameters()) {
                 int maxValues = features[i].getMaxUniqueValues();
                 int embeddingDim = features[i].getEmbeddingDimension();
                 for (int j = 0; j < maxValues; j++) {
@@ -743,15 +897,22 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
             }
         }
         
-        // Write optimizer using centralized service
-        Integer typeId = SerializationService.getTypeId(optimizer);
-        if (typeId == null) {
-            // Fallback to direct serialization if not registered
-            Serializable serializableOptimizer = (Serializable) optimizer;
-            out.writeInt(serializableOptimizer.getTypeId());
-            serializableOptimizer.writeTo(out, version);
-        } else {
-            SerializationService.writeWithTypeId(out, (Serializable) optimizer, version);
+        // Write per-feature optimizers
+        for (int i = 0; i < features.length; i++) {
+            if (featureOptimizers[i] != null) {
+                out.writeBoolean(true); // Has optimizer
+                Integer typeId = SerializationService.getTypeId(featureOptimizers[i]);
+                if (typeId == null) {
+                    // Fallback to direct serialization if not registered
+                    Serializable serializableOptimizer = (Serializable) featureOptimizers[i];
+                    out.writeInt(serializableOptimizer.getTypeId());
+                    serializableOptimizer.writeTo(out, version);
+                } else {
+                    SerializationService.writeWithTypeId(out, (Serializable) featureOptimizers[i], version);
+                }
+            } else {
+                out.writeBoolean(false); // No optimizer for this feature
+            }
         }
     }
     
@@ -808,7 +969,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         // Read embeddings (to match write order: features, embeddings, optimizer)
         float[][][] embeddingData = new float[numFeatures][][];
         for (int i = 0; i < numFeatures; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING) {
+            if (features[i].hasLearnableParameters()) {
                 int maxValues = features[i].getMaxUniqueValues();
                 int embeddingDim = features[i].getEmbeddingDimension();
                 embeddingData[i] = new float[maxValues][embeddingDim];
@@ -820,16 +981,33 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
             }
         }
         
-        // Now read optimizer
-        int optimizerTypeId = in.readInt();
-        Optimizer optimizer = SerializationService.deserializeOptimizer(in, optimizerTypeId, version);
+        // Read per-feature optimizers
+        Optimizer[] featureOptimizers = new Optimizer[numFeatures];
+        Optimizer firstOptimizer = null;
+        for (int i = 0; i < numFeatures; i++) {
+            boolean hasOptimizer = in.readBoolean();
+            if (hasOptimizer) {
+                int optimizerTypeId = in.readInt();
+                featureOptimizers[i] = SerializationService.deserializeOptimizer(in, optimizerTypeId, version);
+                if (firstOptimizer == null) {
+                    firstOptimizer = featureOptimizers[i];
+                }
+            }
+        }
         
-        // Create layer
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        // Create layer using the first optimizer found (for constructor compatibility)
+        // The actual optimizers will be set directly on the layer after creation
+        if (firstOptimizer == null) {
+            throw new IOException("No optimizers found in serialized data");
+        }
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(firstOptimizer, features, WeightInitStrategy.XAVIER);
+        
+        // Override with the deserialized per-feature optimizers
+        System.arraycopy(featureOptimizers, 0, layer.featureOptimizers, 0, numFeatures);
         
         // Copy embedding data to layer
         for (int i = 0; i < numFeatures; i++) {
-            if (features[i].getType() == Feature.Type.EMBEDDING && embeddingData[i] != null) {
+            if (features[i].hasLearnableParameters() && embeddingData[i] != null) {
                 layer.embeddings[i] = embeddingData[i];
             }
         }
@@ -837,60 +1015,15 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         // Copy stored AUTO_NORMALIZE statistics to layer (they were read during feature config)
         for (int i = 0; i < numFeatures; i++) {
             if (features[i].getType() == Feature.Type.AUTO_NORMALIZE) {
-                layer.featureMean[i] = storedMeans[i];
-                layer.featureVariance[i] = storedVariances[i];
-                layer.featureCount[i] = storedCounts[i];
+                NormalizationStats stats = new NormalizationStats();
+                stats.mean = storedMeans[i];
+                stats.variance = storedVariances[i];
+                stats.count = storedCounts[i];
+                layer.featureStats.set(i, stats);
             }
         }
         
         return layer;
-    }
-    
-    private static void writeOptimizer(DataOutputStream out, Optimizer optimizer, int version) throws IOException {
-        System.out.println("[DEBUG] Writing optimizer: " + optimizer.getClass().getSimpleName());
-        
-        String registeredName = SerializationRegistry.getRegisteredName(optimizer);
-        System.out.println("[DEBUG] Registered name: " + registeredName);
-        
-        if (registeredName != null) {
-            System.out.println("[DEBUG] Using custom serialization for: " + registeredName);
-            out.writeInt(SerializationConstants.TYPE_CUSTOM);
-            out.writeUTF(registeredName);
-            return;
-        }
-        
-        // Fall back to built-in serialization
-        Serializable serializableOptimizer = (Serializable) optimizer;
-        int typeId = serializableOptimizer.getTypeId();
-        System.out.println("[DEBUG] Using built-in serialization, type ID: " + typeId);
-        out.writeInt(typeId);
-        serializableOptimizer.writeTo(out, version);
-    }
-    
-    private static Optimizer readOptimizer(DataInputStream in, int version) throws IOException {
-        int typeId = in.readInt();
-        System.out.println("[DEBUG] Reading optimizer with type ID: " + typeId);
-        
-        if (typeId == SerializationConstants.TYPE_CUSTOM) {
-            String className = in.readUTF();
-            System.out.println("[DEBUG] Reading custom optimizer: " + className);
-            return SerializationRegistry.createOptimizer(className, in, version);
-        }
-        
-        System.out.println("[DEBUG] Reading built-in optimizer with type ID: " + typeId);
-        System.out.println("[DEBUG] Expected type IDs - SGD: " + SerializationConstants.TYPE_SGD_OPTIMIZER + 
-                          ", ADAM: " + SerializationConstants.TYPE_ADAM_OPTIMIZER + 
-                          ", ADAMW: " + SerializationConstants.TYPE_ADAMW_OPTIMIZER);
-        
-        return switch (typeId) {
-            case SerializationConstants.TYPE_SGD_OPTIMIZER -> SgdOptimizer.deserialize(in, version);
-            case SerializationConstants.TYPE_ADAM_OPTIMIZER -> AdamOptimizer.deserialize(in, version);
-            case SerializationConstants.TYPE_ADAMW_OPTIMIZER -> AdamWOptimizer.deserialize(in, version);
-            default -> throw new IOException("Unknown optimizer type ID: " + typeId + 
-                " (expected SGD=" + SerializationConstants.TYPE_SGD_OPTIMIZER + 
-                ", ADAM=" + SerializationConstants.TYPE_ADAM_OPTIMIZER + 
-                ", ADAMW=" + SerializationConstants.TYPE_ADAMW_OPTIMIZER + ")");
-        };
     }
     
     @Override
@@ -911,14 +1044,19 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
         
         // Embeddings
         for (Feature feature : features) {
-            if (feature.getType() == Feature.Type.EMBEDDING) {
+            if (feature.hasLearnableParameters()) {
                 size += feature.getMaxUniqueValues() * feature.getEmbeddingDimension() * 4; // float values
             }
         }
         
-        // Optimizer size using centralized service
-        size += 4; // type ID
-        size += ((Serializable) optimizer).getSerializedSize(version); // optimizer data
+        // Per-feature optimizer sizes
+        for (int i = 0; i < features.length; i++) {
+            size += 1; // boolean hasOptimizer
+            if (featureOptimizers[i] != null) {
+                size += 4; // type ID
+                size += ((Serializable) featureOptimizers[i]).getSerializedSize(version); // optimizer data
+            }
+        }
         
         return size;
     }
@@ -926,5 +1064,58 @@ public class MixedFeatureInputLayer implements Layer, Serializable {
     @Override
     public int getTypeId() {
         return SerializationConstants.TYPE_MIXED_FEATURE_INPUT_LAYER;
+    }
+
+
+    // ===============================
+    // GradientProvider Implementation
+    // ===============================
+
+    @Override
+    public List<float[][]> getGradients() {
+        GradientAccumulator accumulator = gradientAccumulators.get();
+        if (accumulator == null || accumulator.gradientBuffers == null) {
+            return List.of();
+        }
+
+        List<float[][]> allGradients = new ArrayList<>();
+        for (int i = 0; i < features.length; i++) {
+            if (accumulator.hasGradients != null && accumulator.hasGradients[i]) {
+                Set<Integer> touched = accumulator.touchedIndices.get(i);
+                if (touched != null && !touched.isEmpty()) {
+                    float[][] featureGradients = accumulator.gradientBuffers[i][0];
+                    float[][] touchedGradients = new float[touched.size()][];
+                    int idx = 0;
+                    for (int embIdx : touched) {
+                        touchedGradients[idx++] = featureGradients[embIdx];
+                    }
+                    allGradients.add(touchedGradients);
+                }
+            }
+        }
+        return allGradients;
+    }
+
+    @Override
+    public void applyClippingScale(float scale) {
+        GradientAccumulator accumulator = gradientAccumulators.get();
+        if (accumulator == null || accumulator.gradientBuffers == null) {
+            return;
+        }
+
+        for (int i = 0; i < features.length; i++) {
+            if (accumulator.hasGradients != null && accumulator.hasGradients[i]) {
+                Set<Integer> touched = accumulator.touchedIndices.get(i);
+                if (touched != null && !touched.isEmpty()) {
+                    float[][] featureGradients = accumulator.gradientBuffers[i][0];
+                    for (int embIdx : touched) {
+                        float[] gradRow = featureGradients[embIdx];
+                        for (int j = 0; j < gradRow.length; j++) {
+                            gradRow[j] *= scale;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
