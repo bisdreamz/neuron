@@ -169,7 +169,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
-            .withSeed(42L)  // Use fixed seed for deterministic test
+            .withSeed(12345L)  // Use fixed seed for deterministic test
             .input(2)
             .layer(Layers.inputMixed(optimizer,
                 Feature.oneHotLRU(5, "status"),  // LRU one-hot with max 5
