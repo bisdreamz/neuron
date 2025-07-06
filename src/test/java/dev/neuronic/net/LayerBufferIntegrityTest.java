@@ -4,6 +4,7 @@ import dev.neuronic.net.*;
 import dev.neuronic.net.layers.*;
 import dev.neuronic.net.activators.TanhActivator;
 import dev.neuronic.net.layers.*;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import dev.neuronic.net.outputs.*;
 import dev.neuronic.net.activators.LinearActivator;
@@ -32,8 +33,9 @@ public class LayerBufferIntegrityTest {
     @Test
     public void testDenseLayerBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
+        FastRandom random = new FastRandom(12345);
         DenseLayer layer = new DenseLayer(optimizer, TanhActivator.INSTANCE,
-                                         3, 2, WeightInitStrategy.XAVIER);
+                                         3, 2, WeightInitStrategy.XAVIER, random);
         
         float[] inputA = {1.0f, 0.0f};
         float[] inputB = {0.0f, 1.0f};
@@ -60,7 +62,7 @@ public class LayerBufferIntegrityTest {
     @Test
     public void testGruLayerBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
-        GruLayer layer = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer layer = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         float[] inputA = {1.0f, 0.0f, 0.5f};
         float[] inputB = {0.0f, 1.0f, -0.5f};
@@ -86,7 +88,7 @@ public class LayerBufferIntegrityTest {
     public void testInputSequenceEmbeddingLayerBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
         InputSequenceEmbeddingLayer layer = new InputSequenceEmbeddingLayer(
-            optimizer, 3, 10, 4, WeightInitStrategy.XAVIER);
+            optimizer, 3, 10, 4, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Build vocabulary first
         layer.getTokenId("a"); // ID 1
@@ -115,7 +117,7 @@ public class LayerBufferIntegrityTest {
     public void testSoftmaxCrossEntropyOutputBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
         SoftmaxCrossEntropyOutput layer = new SoftmaxCrossEntropyOutput(
-            optimizer, 3, 2, WeightInitStrategy.XAVIER);
+            optimizer, 3, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         float[] inputA = {1.0f, 0.0f};
         float[] inputB = {0.0f, 1.0f};
@@ -142,7 +144,7 @@ public class LayerBufferIntegrityTest {
     @Test
     public void testLinearRegressionOutputBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
-        LinearRegressionOutput layer = new LinearRegressionOutput(optimizer, 2, 3);
+        LinearRegressionOutput layer = new LinearRegressionOutput(optimizer, 2, 3, new FastRandom(12345));
         
         float[] inputA = {1.0f, 0.0f, 0.5f};
         float[] inputB = {0.0f, 1.0f, -0.5f};
@@ -169,7 +171,7 @@ public class LayerBufferIntegrityTest {
     @Test
     public void testDropoutLayerBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
-        DropoutLayer layer = new DropoutLayer(0.1f); // Low dropout for predictable testing
+        DropoutLayer layer = new DropoutLayer(0.1f, new FastRandom(12345)); // Low dropout for predictable testing
         
         float[] inputA = {1.0f, 2.0f, 3.0f};
         float[] inputB = {4.0f, 5.0f, 6.0f};
@@ -220,8 +222,9 @@ public class LayerBufferIntegrityTest {
     public void testMultipleSequentialCalls() {
         // Test even more aggressive buffer reuse scenarios
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
+        FastRandom random = new FastRandom(12345);
         DenseLayer layer = new DenseLayer(optimizer, LinearActivator.INSTANCE,
-                                         2, 2, WeightInitStrategy.XAVIER);
+                                         2, 2, WeightInitStrategy.XAVIER, random);
         
         // Make many calls and save all contexts
         Layer.LayerContext[] contexts = new Layer.LayerContext[5];
@@ -251,7 +254,8 @@ public class LayerBufferIntegrityTest {
     @Test
     public void testSigmoidBinaryCrossEntropyOutputBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
-        SigmoidBinaryCrossEntropyOutput layer = new SigmoidBinaryCrossEntropyOutput(optimizer, 3);
+        FastRandom random = new FastRandom(12345);
+        SigmoidBinaryCrossEntropyOutput layer = new SigmoidBinaryCrossEntropyOutput(optimizer, 3, random);
         
         float[] inputA = {1.0f, 0.0f, 0.5f};
         float[] inputB = {0.0f, 1.0f, -0.5f};
@@ -278,7 +282,8 @@ public class LayerBufferIntegrityTest {
     @Test
     public void testMultiLabelSigmoidOutputBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
-        MultiLabelSigmoidOutput layer = new MultiLabelSigmoidOutput(optimizer, 3, 2);
+        FastRandom random = new FastRandom(12345);
+        MultiLabelSigmoidOutput layer = new MultiLabelSigmoidOutput(optimizer, 3, 2, random);
         
         float[] inputA = {1.0f, 0.0f};
         float[] inputB = {0.0f, 1.0f};
@@ -305,7 +310,8 @@ public class LayerBufferIntegrityTest {
     @Test
     public void testInputEmbeddingLayerBufferIntegrity() {
         AdamWOptimizer optimizer = new AdamWOptimizer(0.1f, 0.0f);
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 100, 32, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 100, 32, WeightInitStrategy.XAVIER, random);
         
         float[] inputA = {1.0f, 5.0f, 10.0f}; // Token IDs
         float[] inputB = {2.0f, 8.0f, 15.0f}; // Different token IDs
@@ -335,7 +341,8 @@ public class LayerBufferIntegrityTest {
             Feature.passthrough(),       // Numerical feature
             Feature.autoNormalize()      // Auto-normalized numerical feature
         };
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, random);
         
         float[] inputA = {1.0f, 5.0f, 0.5f, 1.5f}; // categorical + continuous features
         float[] inputB = {2.0f, 8.0f, -0.5f, 2.5f}; // Different features

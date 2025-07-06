@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.common.PooledFloatArray;
+import dev.neuronic.net.math.FastRandom;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -49,7 +50,7 @@ public class HashedEmbeddingLayer implements Layer {
         }
     }
     
-    public HashedEmbeddingLayer(int hashBuckets, int embeddingDim, int numHashes, Optimizer optimizer) {
+    public HashedEmbeddingLayer(int hashBuckets, int embeddingDim, int numHashes, Optimizer optimizer, FastRandom random) {
         this.hashBuckets = hashBuckets;
         this.embeddingDim = embeddingDim;
         this.numHashes = numHashes;
@@ -60,7 +61,7 @@ public class HashedEmbeddingLayer implements Layer {
         float scale = (float) Math.sqrt(2.0 / embeddingDim);
         for (int i = 0; i < hashBuckets; i++) {
             for (int j = 0; j < embeddingDim; j++) {
-                embeddings[i][j] = (float) (Math.random() * 2 - 1) * scale;
+                embeddings[i][j] = (random.nextFloat() * 2 - 1) * scale;
             }
         }
     }
@@ -206,18 +207,13 @@ public class HashedEmbeddingLayer implements Layer {
             this.optimizer = optimizer;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return create(inputSize, optimizer);
-        }
         
-        @Override
-        public Layer create(int inputSize, Optimizer defaultOptimizer) {
+        public Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random) {
             Optimizer opt = optimizer != null ? optimizer : defaultOptimizer;
             if (opt == null) {
                 throw new IllegalStateException("No optimizer provided for hashed embedding layer");
             }
-            return new HashedEmbeddingLayer(hashBuckets, embeddingDim, numHashes, opt);
+            return new HashedEmbeddingLayer(hashBuckets, embeddingDim, numHashes, opt, random);
         }
         
         @Override

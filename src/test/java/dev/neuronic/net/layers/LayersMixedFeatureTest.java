@@ -3,6 +3,7 @@ package dev.neuronic.net.layers;
 // LayerContext accessed as Layer.LayerContext
 import dev.neuronic.net.Layers;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +29,8 @@ class LayersMixedFeatureTest {
             Feature.passthrough()
         );
         
-        Layer layer = spec.create(0); // Input size ignored for input layers
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(0, optimizer, random); // Input size ignored for input layers
         assertEquals(21, layer.getOutputSize()); // 16 + 4 + 1 = 21
         
         assertTrue(layer instanceof MixedFeatureInputLayer);
@@ -50,7 +52,8 @@ class LayersMixedFeatureTest {
         );
         
         // Create layer with an optimizer (simulating what NeuralNetBuilder would do)
-        Layer layer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) spec).createLayer(0, optimizer);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) spec).createLayer(0, optimizer, random);
         assertEquals(11, layer.getOutputSize()); // 8 + 3 = 11
         assertTrue(layer instanceof MixedFeatureInputLayer);
     }
@@ -62,7 +65,8 @@ class LayersMixedFeatureTest {
             Feature.passthrough()
         );
         
-        Layer layer = spec.create(0);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(0, optimizer, random);
         assertEquals(5, layer.getOutputSize()); // 4 + 1 = 5
         assertTrue(layer instanceof MixedFeatureInputLayer);
     }
@@ -72,7 +76,8 @@ class LayersMixedFeatureTest {
         Layer.Spec spec = Layers.inputAllEmbeddings(32, optimizer, 
             10000, 5000, 2000); // Three features with different vocab sizes, same embedding dim
         
-        Layer layer = spec.create(0);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(0, optimizer, random);
         assertEquals(96, layer.getOutputSize()); // 3 * 32 = 96
         
         assertTrue(layer instanceof MixedFeatureInputLayer);
@@ -99,7 +104,8 @@ class LayersMixedFeatureTest {
         
         // One-hot features don't need an optimizer, but the layer creation mechanism requires one
         // We'll use the MixedFeatureInputLayerSpec's createLayer method directly
-        Layer layer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) spec).createLayer(0, null);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) spec).createLayer(0, null, random);
         assertEquals(22, layer.getOutputSize()); // 4 + 8 + 3 + 7 = 22
         
         assertTrue(layer instanceof MixedFeatureInputLayer);
@@ -127,7 +133,8 @@ class LayersMixedFeatureTest {
         Layer.Spec spec = Layers.inputAllNumerical(5);
         
         // Create layer with dummy optimizer (won't be used since no learnable parameters)
-        Layer layer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) spec).createLayer(0, optimizer);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) spec).createLayer(0, optimizer, random);
         assertEquals(5, layer.getOutputSize());
         
         assertTrue(layer instanceof MixedFeatureInputLayer);
@@ -153,7 +160,8 @@ class LayersMixedFeatureTest {
             Feature.passthrough()            // user_age
         );
         
-        Layer inputLayer = inputSpec.create(0);
+        FastRandom random = new FastRandom(12345);
+        Layer inputLayer = inputSpec.create(0, optimizer, random);
         assertEquals(109, inputLayer.getOutputSize()); // 64 + 32 + 4 + 8 + 1 = 109
         
         // Test with realistic advertising data
@@ -187,8 +195,9 @@ class LayersMixedFeatureTest {
         Layer.Spec manualSpec = Layers.inputMixed(optimizer, manualEmbeddings);
         Layer.Spec convenienceSpec = Layers.inputAllEmbeddings(16, optimizer, 1000, 2000, 500);
         
-        Layer manualLayer = manualSpec.create(0);
-        Layer convenienceLayer = convenienceSpec.create(0);
+        FastRandom random = new FastRandom(12345);
+        Layer manualLayer = manualSpec.create(0, optimizer, random);
+        Layer convenienceLayer = convenienceSpec.create(0, optimizer, random);
         
         assertEquals(manualLayer.getOutputSize(), convenienceLayer.getOutputSize());
         assertEquals(48, manualLayer.getOutputSize()); // 3 * 16 = 48
@@ -202,9 +211,11 @@ class LayersMixedFeatureTest {
         Layer.Spec manualOneHotSpec = Layers.inputMixed(optimizer, manualOneHot);
         Layer.Spec convenienceOneHotSpec = Layers.inputAllOneHot(3, 5, 2);
         
-        Layer manualOneHotLayer = manualOneHotSpec.create(0);
+        FastRandom random1 = new FastRandom(12345);
+        Layer manualOneHotLayer = manualOneHotSpec.create(0, optimizer, random1);
         // One-hot features don't need an optimizer, but the layer creation mechanism requires one
-        Layer convenienceOneHotLayer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) convenienceOneHotSpec).createLayer(0, null);
+        FastRandom random2 = new FastRandom(12345);
+        Layer convenienceOneHotLayer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) convenienceOneHotSpec).createLayer(0, null, random2);
         
         assertEquals(manualOneHotLayer.getOutputSize(), convenienceOneHotLayer.getOutputSize());
         assertEquals(10, manualOneHotLayer.getOutputSize()); // 3 + 5 + 2 = 10
@@ -219,9 +230,11 @@ class LayersMixedFeatureTest {
         Layer.Spec manualNumericalSpec = Layers.inputMixed(optimizer, manualNumerical);
         Layer.Spec convenienceNumericalSpec = Layers.inputAllNumerical(4);
         
-        Layer manualNumericalLayer = manualNumericalSpec.create(0);
+        FastRandom random3 = new FastRandom(12345);
+        Layer manualNumericalLayer = manualNumericalSpec.create(0, optimizer, random3);
         // Create convenience layer with optimizer (since numerical features still need optimizer API consistency)
-        Layer convenienceNumericalLayer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) convenienceNumericalSpec).createLayer(0, optimizer);
+        FastRandom random4 = new FastRandom(12345);
+        Layer convenienceNumericalLayer = ((MixedFeatureInputLayer.MixedFeatureInputLayerSpec) convenienceNumericalSpec).createLayer(0, optimizer, random4);
         
         assertEquals(manualNumericalLayer.getOutputSize(), convenienceNumericalLayer.getOutputSize());
         assertEquals(4, manualNumericalLayer.getOutputSize());
@@ -268,7 +281,8 @@ class LayersMixedFeatureTest {
             Feature.passthrough()
         );
         
-        Layer layer = spec.create(0);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(0, optimizer, random);
         
         // Forward pass
         float[] input = {5, 1, 2.5f};

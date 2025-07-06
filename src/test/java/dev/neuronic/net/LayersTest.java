@@ -1,6 +1,7 @@
 package dev.neuronic.net;
 
 import dev.neuronic.net.layers.Layer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.outputs.*;
 import dev.neuronic.net.activators.*;
@@ -24,7 +25,8 @@ class LayersTest {
         
         assertEquals(128, spec.getOutputSize());
         
-        Layer layer = spec.create(784);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(784, optimizer, random);
         assertNotNull(layer);
         
         // Test forward pass
@@ -48,7 +50,8 @@ class LayersTest {
         
         assertEquals(64, spec.getOutputSize());
         
-        Layer layer = spec.create(128);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(128, optimizer, random);
         assertNotNull(layer);
         
         // Test forward pass
@@ -73,7 +76,8 @@ class LayersTest {
         
         assertEquals(32, spec.getOutputSize());
         
-        Layer layer = spec.create(64);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(64, optimizer, random);
         assertNotNull(layer);
         
         // Test forward pass
@@ -98,7 +102,8 @@ class LayersTest {
         
         assertEquals(16, spec.getOutputSize());
         
-        Layer layer = spec.create(32);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(32, optimizer, random);
         assertNotNull(layer);
         
         // Test forward pass
@@ -126,7 +131,8 @@ class LayersTest {
         
         assertEquals(10, spec.getOutputSize());
         
-        Layer layer = spec.create(128);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(128, optimizer, random);
         assertNotNull(layer);
         assertInstanceOf(SoftmaxCrossEntropyOutput.class, layer);
         
@@ -154,7 +160,8 @@ class LayersTest {
         
         assertEquals(1, spec.getOutputSize());
         
-        Layer layer = spec.create(64);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(64, optimizer, random);
         assertNotNull(layer);
         assertInstanceOf(LinearRegressionOutput.class, layer);
         
@@ -178,7 +185,8 @@ class LayersTest {
         
         assertEquals(1, spec.getOutputSize());
         
-        Layer layer = spec.create(32);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(32, optimizer, random);
         assertNotNull(layer);
         assertInstanceOf(SigmoidBinaryCrossEntropyOutput.class, layer);
         
@@ -203,7 +211,8 @@ class LayersTest {
         
         assertEquals(5, spec.getOutputSize());
         
-        Layer layer = spec.create(64);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(64, optimizer, random);
         assertNotNull(layer);
         assertInstanceOf(MultiLabelSigmoidOutput.class, layer);
         

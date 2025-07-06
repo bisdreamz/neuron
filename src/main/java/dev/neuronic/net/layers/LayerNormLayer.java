@@ -1,5 +1,6 @@
 package dev.neuronic.net.layers;
 
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.serialization.SerializationConstants;
@@ -167,7 +168,7 @@ public class LayerNormLayer implements Layer, Serializable {
         throw new UnsupportedOperationException("Use deserialize() static method instead");
     }
     
-    public static LayerNormLayer deserialize(DataInputStream in, int version) throws IOException {
+    public static LayerNormLayer deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         int size = in.readInt();
         float epsilon = in.readFloat();
         
@@ -250,18 +251,18 @@ public class LayerNormLayer implements Layer, Serializable {
             return inputSize;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return create(inputSize, null);
-        }
         
-        @Override
         public Layer create(int inputSize, Optimizer defaultOptimizer) {
             Optimizer effectiveOptimizer = (optimizer != null) ? optimizer : defaultOptimizer;
             if (effectiveOptimizer == null) {
                 throw new IllegalStateException("No optimizer available for LayerNorm parameters");
             }
             return new LayerNormLayer(effectiveOptimizer, inputSize, epsilon);
+        }
+        
+        public Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random) {
+            // LayerNorm doesn't use random initialization
+            return create(inputSize, defaultOptimizer);
         }
     }
 }

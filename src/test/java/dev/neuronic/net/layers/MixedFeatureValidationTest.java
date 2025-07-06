@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.Layers;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,20 +25,21 @@ class MixedFeatureValidationTest {
 
     @Test
     void testFeatureConfigurationValidation() {
+        FastRandom random = new FastRandom(12345);
         // Test null features array
         assertThrows(IllegalArgumentException.class, () -> {
-            new MixedFeatureInputLayer(optimizer, null, WeightInitStrategy.XAVIER);
+            new MixedFeatureInputLayer(optimizer, null, WeightInitStrategy.XAVIER, random);
         });
 
         // Test empty features array
         assertThrows(IllegalArgumentException.class, () -> {
-            new MixedFeatureInputLayer(optimizer, new Feature[0], WeightInitStrategy.XAVIER);
+            new MixedFeatureInputLayer(optimizer, new Feature[0], WeightInitStrategy.XAVIER, random);
         });
 
         // Test null feature in array
         Feature[] featuresWithNull = {Feature.embedding(100, 16), null, Feature.oneHot(4)};
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
-            new MixedFeatureInputLayer(optimizer, featuresWithNull, WeightInitStrategy.XAVIER);
+            new MixedFeatureInputLayer(optimizer, featuresWithNull, WeightInitStrategy.XAVIER, random);
         });
         assertTrue(exception.getMessage().contains("Feature 1 is null"));
     }
@@ -137,7 +139,8 @@ class MixedFeatureValidationTest {
             Feature.passthrough()
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, random);
 
         // Test null input
         assertThrows(IllegalArgumentException.class, () -> {
@@ -160,7 +163,8 @@ class MixedFeatureValidationTest {
     @Test
     void testEmbeddingValueValidation() {
         Feature[] features = {Feature.embedding(10, 4)};
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, random);
 
         // Test negative embedding value
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
@@ -187,7 +191,8 @@ class MixedFeatureValidationTest {
     @Test
     void testOneHotValueValidation() {
         Feature[] features = {Feature.oneHot(3)};
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, random);
 
         // Test negative one-hot value
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
@@ -212,7 +217,8 @@ class MixedFeatureValidationTest {
     @Test
     void testPassthroughValueValidation() {
         Feature[] features = {Feature.passthrough()};
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, random);
 
         // Passthrough should accept any float value
         assertDoesNotThrow(() -> {
@@ -236,7 +242,8 @@ class MixedFeatureValidationTest {
             Feature.passthrough()        // Feature 2
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, random);
 
         // Test embedding error includes feature index
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
@@ -269,7 +276,8 @@ class MixedFeatureValidationTest {
             Feature.passthrough()
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, random);
 
         // Valid input should work without exceptions
         assertDoesNotThrow(() -> {

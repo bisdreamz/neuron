@@ -1,6 +1,7 @@
 package dev.neuronic.net.layers;
 
 import dev.neuronic.net.layers.Layer.LayerContext;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -12,7 +13,8 @@ public class DropoutLayerDynamicSizeTest {
     @Test
     public void testDynamicDropoutAdaptsToInputSize() {
         // Create dynamic dropout layer
-        DropoutLayer dropout = new DropoutLayer(0.5f);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer dropout = new DropoutLayer(0.5f, random);
         assertEquals(-1, dropout.getOutputSize());
         
         // Test with different input sizes
@@ -34,7 +36,8 @@ public class DropoutLayerDynamicSizeTest {
     @Test
     public void testFixedSizeDropoutValidatesInput() {
         // Create fixed-size dropout layer
-        DropoutLayer dropout = new DropoutLayer(0.5f, 128);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer dropout = new DropoutLayer(0.5f, 128, random);
         assertEquals(128, dropout.getOutputSize());
         
         // Should accept correct size
@@ -50,7 +53,8 @@ public class DropoutLayerDynamicSizeTest {
     @Test
     public void testDropoutAfterVariableSizeGRU() {
         // Simulate GRU output with different sizes
-        DropoutLayer dropout = new DropoutLayer(0.3f);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer dropout = new DropoutLayer(0.3f, random);
         
         // GRU all timesteps: sequence_length * hidden_size
         float[] gruAllTimesteps = new float[20 * 128]; // 2560
@@ -65,7 +69,8 @@ public class DropoutLayerDynamicSizeTest {
     
     @Test
     public void testBackwardAlsoHandlesDynamicSizes() {
-        DropoutLayer dropout = new DropoutLayer(0.5f);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer dropout = new DropoutLayer(0.5f, random);
         
         // Forward with one size
         float[] input = new float[256];

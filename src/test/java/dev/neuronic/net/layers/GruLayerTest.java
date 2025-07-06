@@ -4,6 +4,7 @@ import dev.neuronic.net.Layers;
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.serialization.SerializationConstants;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -22,7 +23,7 @@ class GruLayerTest {
     @Test
     void testBasicGruForward() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with sequence of length 2
         float[] input = {
@@ -47,7 +48,7 @@ class GruLayerTest {
     @Test
     void testGruDimensions() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 8, 5, WeightInitStrategy.HE);
+        GruLayer gru = new GruLayer(optimizer, 8, 5, WeightInitStrategy.HE, new FastRandom(12345));
         
         // Test different sequence lengths
         for (int seqLen = 1; seqLen <= 5; seqLen++) {
@@ -65,7 +66,7 @@ class GruLayerTest {
     @Test
     void testGruStateful() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 3, 2, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 3, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Same input should produce same output (deterministic)
         float[] input = {1.0f, 0.0f, 0.5f, 1.0f}; // 2 timesteps
@@ -85,7 +86,7 @@ class GruLayerTest {
     @Test
     void testGruSerialization() throws IOException {
         SgdOptimizer optimizer = new SgdOptimizer(0.02f);
-        GruLayer original = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer original = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test forward pass
         float[] input = {1.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.5f};
@@ -100,7 +101,7 @@ class GruLayerTest {
         // Deserialize
         ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
         DataInputStream in = new DataInputStream(bais);
-        GruLayer deserialized = GruLayer.deserialize(in, SerializationConstants.CURRENT_VERSION);
+        GruLayer deserialized = GruLayer.deserialize(in, SerializationConstants.CURRENT_VERSION, new FastRandom(12345));
         in.close();
         
         // Test equivalence
@@ -121,7 +122,8 @@ class GruLayerTest {
         
         assertEquals(16, spec.getOutputSize(), "Spec should return hidden size");
         
-        Layer layer = spec.create(8); // inputSize = 8
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(8, optimizer, random); // inputSize = 8
         assertTrue(layer instanceof GruLayer, "Should create GruLayer");
         
         GruLayer gruLayer = (GruLayer) layer;
@@ -132,7 +134,7 @@ class GruLayerTest {
     @Test
     void testInvalidInputs() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Input length not multiple of inputSize
         assertThrows(IllegalArgumentException.class, () -> {
@@ -149,27 +151,27 @@ class GruLayerTest {
         
         // Invalid hidden size
         assertThrows(IllegalArgumentException.class, () -> {
-            new GruLayer(optimizer, 0, 10, WeightInitStrategy.XAVIER);
+            new GruLayer(optimizer, 0, 10, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            new GruLayer(optimizer, -5, 10, WeightInitStrategy.XAVIER);
+            new GruLayer(optimizer, -5, 10, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
         
         // Invalid input size
         assertThrows(IllegalArgumentException.class, () -> {
-            new GruLayer(optimizer, 10, 0, WeightInitStrategy.XAVIER);
+            new GruLayer(optimizer, 10, 0, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            new GruLayer(optimizer, 10, -3, WeightInitStrategy.XAVIER);
+            new GruLayer(optimizer, 10, -3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
     }
     
     @Test
     void testBackwardPass() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         float[] input = {1.0f, 0.0f, 0.5f};
         Layer.LayerContext context = gru.forward(input, false);
@@ -190,7 +192,7 @@ class GruLayerTest {
     @Test 
     void testBackwardPassMultipleTimesteps() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 3, 2, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 3, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with 3 timesteps
         float[] input = {
@@ -226,7 +228,7 @@ class GruLayerTest {
     @Test
     void testGruLearning() {
         SgdOptimizer optimizer = new SgdOptimizer(0.1f);
-        GruLayer gru = new GruLayer(optimizer, 2, 1, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 2, 1, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Simple learning test: try to learn to output [1.0, 0.0] for input [1.0]
         float[] input = {1.0f};

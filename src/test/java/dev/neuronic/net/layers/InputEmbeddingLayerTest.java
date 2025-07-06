@@ -3,6 +3,7 @@ package dev.neuronic.net.layers;
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.serialization.SerializationConstants;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -21,7 +22,7 @@ class InputEmbeddingLayerTest {
     @Test
     void testBasicEmbeddingLookup() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 5, 3, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 5, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Set known embeddings for testing
         layer.setEmbedding(0, new float[]{1.0f, 0.0f, 0.0f});
@@ -49,7 +50,7 @@ class InputEmbeddingLayerTest {
     @Test
     void testEmbeddingDimensions() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 100, 50, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 100, 50, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         assertEquals(100, layer.getVocabSize(), "Vocab size should match");
         assertEquals(50, layer.getEmbeddingDim(), "Embedding dim should match");
@@ -65,7 +66,7 @@ class InputEmbeddingLayerTest {
     @Test
     void testGradientAccumulation() {
         SgdOptimizer optimizer = new SgdOptimizer(0.1f); // High learning rate for visible changes
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 3, 2, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 3, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Set initial embeddings
         layer.setEmbedding(0, new float[]{1.0f, 0.0f});
@@ -102,7 +103,7 @@ class InputEmbeddingLayerTest {
     @Test
     void testInvalidInputs() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 5, 3, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 5, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test invalid token IDs
         assertThrows(IllegalArgumentException.class, () -> {
@@ -134,7 +135,7 @@ class InputEmbeddingLayerTest {
     @Test
     void testLargeSequence() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 1000, 128, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 1000, 128, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with a large sequence (should automatically resize buffers)
         float[] tokens = new float[600]; // Larger than initial buffer size
@@ -150,7 +151,7 @@ class InputEmbeddingLayerTest {
     @Test
     void testSerialization() throws IOException {
         SgdOptimizer optimizer = new SgdOptimizer(0.02f);
-        InputEmbeddingLayer original = new InputEmbeddingLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer original = new InputEmbeddingLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Set some known embeddings
         original.setEmbedding(0, new float[]{1.0f, 2.0f, 3.0f});
@@ -171,7 +172,7 @@ class InputEmbeddingLayerTest {
         // Deserialize
         ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
         DataInputStream in = new DataInputStream(bais);
-        InputEmbeddingLayer deserialized = InputEmbeddingLayer.deserialize(in, SerializationConstants.CURRENT_VERSION);
+        InputEmbeddingLayer deserialized = InputEmbeddingLayer.deserialize(in, SerializationConstants.CURRENT_VERSION, new FastRandom(12345));
         in.close();
         
         // Test equivalence
@@ -194,7 +195,7 @@ class InputEmbeddingLayerTest {
     @Test
     void testSerializationSizeAccuracy() throws IOException {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 10, 5, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 10, 5, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Get estimated size
         int estimatedSize = layer.getSerializedSize(SerializationConstants.CURRENT_VERSION);
@@ -219,7 +220,8 @@ class InputEmbeddingLayerTest {
         assertEquals(64, spec.getOutputSize(), "Spec should return embedding dimension");
         
         // Create layer from spec
-        Layer layer = spec.create(999); // Input size should be ignored
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(999, optimizer, random); // Input size should be ignored
         assertTrue(layer instanceof InputEmbeddingLayer, "Should create InputEmbeddingLayer");
         
         InputEmbeddingLayer embeddingLayer = (InputEmbeddingLayer) layer;
@@ -233,20 +235,20 @@ class InputEmbeddingLayerTest {
         
         // Invalid vocab size
         assertThrows(IllegalArgumentException.class, () -> {
-            new InputEmbeddingLayer(optimizer, 0, 10, WeightInitStrategy.XAVIER);
+            new InputEmbeddingLayer(optimizer, 0, 10, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            new InputEmbeddingLayer(optimizer, -5, 10, WeightInitStrategy.XAVIER);
+            new InputEmbeddingLayer(optimizer, -5, 10, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
         
         // Invalid embedding dimension
         assertThrows(IllegalArgumentException.class, () -> {
-            new InputEmbeddingLayer(optimizer, 10, 0, WeightInitStrategy.XAVIER);
+            new InputEmbeddingLayer(optimizer, 10, 0, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            new InputEmbeddingLayer(optimizer, 10, -3, WeightInitStrategy.XAVIER);
+            new InputEmbeddingLayer(optimizer, 10, -3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
     }
 }

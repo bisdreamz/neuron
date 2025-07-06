@@ -6,6 +6,7 @@ import dev.neuronic.net.layers.DenseLayer;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.outputs.SoftmaxCrossEntropyOutput;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -68,7 +69,7 @@ class SerializableComponentsTest {
     void testDenseLayerSerialization() throws IOException {
         // Create a dense layer with specific weights
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        DenseLayer original = new DenseLayer(optimizer, ReluActivator.INSTANCE, 3, 2, WeightInitStrategy.XAVIER);
+        DenseLayer original = new DenseLayer(optimizer, ReluActivator.INSTANCE, 3, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Train it a bit to get non-zero weights
         float[] input = {1.0f, 2.0f};
@@ -86,7 +87,7 @@ class SerializableComponentsTest {
         
         // Deserialize
         DenseLayer deserialized = DenseLayer.deserialize(
-            new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION);
+            new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION, new FastRandom(12345));
         
         // Test prediction equivalence
         float[] deserializedOutput = deserialized.forward(input, false).outputs();
@@ -104,7 +105,7 @@ class SerializableComponentsTest {
         // Create output layer
         SgdOptimizer optimizer = new SgdOptimizer(0.02f);
         SoftmaxCrossEntropyOutput original = new SoftmaxCrossEntropyOutput(
-            optimizer, 3, 4, WeightInitStrategy.XAVIER);
+            optimizer, 3, 4, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Train it a bit
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f};
@@ -124,7 +125,7 @@ class SerializableComponentsTest {
         
         // Deserialize
         SoftmaxCrossEntropyOutput deserialized = SoftmaxCrossEntropyOutput.deserialize(
-            new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION);
+            new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION, new FastRandom(12345));
         
         // Test prediction and loss equivalence
         var deserializedContext = deserialized.forward(input, false);
@@ -176,6 +177,99 @@ class SerializableComponentsTest {
     }
     
     @Test
+    void testNeuralNetSerializationWithSeed() throws IOException {
+        // Test that seed is preserved through serialization
+        long seed = 42L;
+        SgdOptimizer optimizer = new SgdOptimizer(0.01f);
+        
+        // Create network with specific seed
+        NeuralNet original = NeuralNet.newBuilder()
+            .input(4)
+            .withSeed(seed)
+            .layer(DenseLayer.spec(6, ReluActivator.INSTANCE, optimizer, WeightInitStrategy.HE))
+            .layer(DenseLayer.spec(4, ReluActivator.INSTANCE, optimizer, WeightInitStrategy.HE))
+            .output(SoftmaxCrossEntropyOutput.spec(3, optimizer, WeightInitStrategy.XAVIER));
+        
+        // Get initial prediction
+        float[] input = {1.0f, 2.0f, 3.0f, 4.0f};
+        float[] originalOutput = original.predict(input);
+        
+        // Serialize
+        byte[] serialized = serializeComponent(original);
+        
+        // Deserialize
+        NeuralNet deserialized = NeuralNet.deserialize(
+            new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION);
+        
+        // Test prediction equivalence
+        float[] deserializedOutput = deserialized.predict(input);
+        assertArrayEquals(originalOutput, deserializedOutput, 1e-6f,
+            "Seeded network outputs should be identical after serialization");
+        
+        // Create another network with the same seed from scratch
+        NeuralNet recreated = NeuralNet.newBuilder()
+            .input(4)
+            .withSeed(seed)
+            .layer(DenseLayer.spec(6, ReluActivator.INSTANCE, new SgdOptimizer(0.01f), WeightInitStrategy.HE))
+            .layer(DenseLayer.spec(4, ReluActivator.INSTANCE, new SgdOptimizer(0.01f), WeightInitStrategy.HE))
+            .output(SoftmaxCrossEntropyOutput.spec(3, new SgdOptimizer(0.01f), WeightInitStrategy.XAVIER));
+        
+        // Should have identical initial weights
+        float[] recreatedOutput = recreated.predict(input);
+        assertArrayEquals(originalOutput, recreatedOutput, 1e-6f,
+            "Network created with same seed should have identical initial weights");
+    }
+    
+    @Test
+    void testEmbeddingLayerSerializationWithSeed() throws IOException {
+        // Test that embedding layers preserve their random initialization through serialization
+        long seed = 12345L;
+        SgdOptimizer optimizer = new SgdOptimizer(0.01f);
+        
+        // Create network with embeddings using specific seed
+        NeuralNet original = NeuralNet.newBuilder()
+            .input(2)
+            .setDefaultOptimizer(optimizer)
+            .withSeed(seed)
+            .layer(dev.neuronic.net.Layers.inputMixed(
+                dev.neuronic.net.layers.Feature.embedding(1000, 16, "item"),
+                dev.neuronic.net.layers.Feature.oneHot(5, "category")
+            ))
+            .layer(DenseLayer.spec(8, ReluActivator.INSTANCE, optimizer, WeightInitStrategy.HE))
+            .output(SoftmaxCrossEntropyOutput.spec(3, optimizer, WeightInitStrategy.XAVIER));
+        
+        // Get initial prediction with embedding lookups
+        float[] input = {123f, 2f}; // item_id=123, category=2
+        float[] originalOutput = original.predict(input);
+        
+        // Serialize and deserialize
+        byte[] serialized = serializeComponent(original);
+        NeuralNet deserialized = NeuralNet.deserialize(
+            new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION);
+        
+        // Should produce identical output
+        float[] deserializedOutput = deserialized.predict(input);
+        assertArrayEquals(originalOutput, deserializedOutput, 1e-6f,
+            "Embedding network outputs should be identical after serialization");
+        
+        // Create new network with same seed - should have identical embeddings
+        NeuralNet recreated = NeuralNet.newBuilder()
+            .input(2)
+            .setDefaultOptimizer(new SgdOptimizer(0.01f))
+            .withSeed(seed)
+            .layer(dev.neuronic.net.Layers.inputMixed(
+                dev.neuronic.net.layers.Feature.embedding(1000, 16, "item"),
+                dev.neuronic.net.layers.Feature.oneHot(5, "category")
+            ))
+            .layer(DenseLayer.spec(8, ReluActivator.INSTANCE, new SgdOptimizer(0.01f), WeightInitStrategy.HE))
+            .output(SoftmaxCrossEntropyOutput.spec(3, new SgdOptimizer(0.01f), WeightInitStrategy.XAVIER));
+        
+        float[] recreatedOutput = recreated.predict(input);
+        assertArrayEquals(originalOutput, recreatedOutput, 1e-6f,
+            "Recreated network with same seed should have identical embeddings");
+    }
+    
+    @Test
     void testSerializationSizeConsistency() throws IOException {
         // Test that getSerializedSize() matches actual serialization size
         
@@ -186,13 +280,13 @@ class SerializableComponentsTest {
             "SGD serialized size should match getSerializedSize()");
         
         // Test Dense layer
-        DenseLayer dense = new DenseLayer(sgd, ReluActivator.INSTANCE, 3, 2, WeightInitStrategy.XAVIER);
+        DenseLayer dense = new DenseLayer(sgd, ReluActivator.INSTANCE, 3, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
         byte[] denseSerialized = serializeComponent(dense);
         assertEquals(dense.getSerializedSize(TEST_VERSION), denseSerialized.length,
             "Dense layer serialized size should match getSerializedSize()");
         
         // Test Output layer
-        SoftmaxCrossEntropyOutput output = new SoftmaxCrossEntropyOutput(sgd, 3, 4, WeightInitStrategy.XAVIER);
+        SoftmaxCrossEntropyOutput output = new SoftmaxCrossEntropyOutput(sgd, 3, 4, WeightInitStrategy.XAVIER, new FastRandom(12345));
         byte[] outputSerialized = serializeComponent(output);
         assertEquals(output.getSerializedSize(TEST_VERSION), outputSerialized.length,
             "Output layer serialized size should match getSerializedSize()");
@@ -202,8 +296,8 @@ class SerializableComponentsTest {
     void testTypeIdConsistency() {
         // Verify all components have unique type IDs
         SgdOptimizer sgd = new SgdOptimizer(0.01f);
-        DenseLayer dense = new DenseLayer(sgd, ReluActivator.INSTANCE, 3, 2, WeightInitStrategy.XAVIER);
-        SoftmaxCrossEntropyOutput output = new SoftmaxCrossEntropyOutput(sgd, 3, 4, WeightInitStrategy.XAVIER);
+        DenseLayer dense = new DenseLayer(sgd, ReluActivator.INSTANCE, 3, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
+        SoftmaxCrossEntropyOutput output = new SoftmaxCrossEntropyOutput(sgd, 3, 4, WeightInitStrategy.XAVIER, new FastRandom(12345));
         NeuralNet net = NeuralNet.newBuilder()
             .input(2)
             .output(SoftmaxCrossEntropyOutput.spec(3, sgd, WeightInitStrategy.XAVIER));

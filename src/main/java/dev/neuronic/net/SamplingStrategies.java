@@ -1,9 +1,7 @@
 package dev.neuronic.net;
 
 import dev.neuronic.net.common.Utils;
-
-import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
+import dev.neuronic.net.math.FastRandom;
 
 /**
  * Sampling strategies for language model generation.
@@ -41,9 +39,10 @@ public final class SamplingStrategies {
      *
      * @param probabilities softmax output probabilities
      * @param temperature   controls randomness (0.1=focused, 1.0=normal, 2.0=creative)
+     * @param random       FastRandom instance for sampling
      * @return sampled token index
      */
-    public static int sampleWithTemperature(float[] probabilities, float temperature) {
+    public static int sampleWithTemperature(float[] probabilities, float temperature, FastRandom random) {
         if (temperature <= 0)
             throw new IllegalArgumentException("Temperature must be positive, got: " + temperature);
 
@@ -77,7 +76,7 @@ public final class SamplingStrategies {
             logits[i] /= sumExp;
         }
 
-        return sampleFromDistribution(logits);
+        return sampleFromDistribution(logits, random);
     }
 
     /**
@@ -86,9 +85,10 @@ public final class SamplingStrategies {
      * @param probabilities softmax output probabilities
      * @param k             number of top tokens to consider
      * @param temperature   optional temperature scaling (1.0 = no scaling)
+     * @param random       FastRandom instance for sampling
      * @return sampled token index
      */
-    public static int sampleTopK(float[] probabilities, int k, float temperature) {
+    public static int sampleTopK(float[] probabilities, int k, float temperature, FastRandom random) {
         if (k <= 0 || k > probabilities.length) {
             throw new IllegalArgumentException("K must be between 1 and vocab size, got: " + k);
         }
@@ -120,9 +120,9 @@ public final class SamplingStrategies {
 
         // Apply temperature if needed
         if (Math.abs(temperature - 1.0f) > 1e-6f) {
-            return sampleWithTemperature(topKProbs, temperature);
+            return sampleWithTemperature(topKProbs, temperature, random);
         } else {
-            return sampleFromDistribution(topKProbs);
+            return sampleFromDistribution(topKProbs, random);
         }
     }
 
@@ -132,9 +132,10 @@ public final class SamplingStrategies {
      * @param probabilities softmax output probabilities
      * @param p             cumulative probability threshold (e.g., 0.9)
      * @param temperature   optional temperature scaling
+     * @param random       FastRandom instance for sampling
      * @return sampled token index
      */
-    public static int sampleTopP(float[] probabilities, float p, float temperature) {
+    public static int sampleTopP(float[] probabilities, float p, float temperature, FastRandom random) {
         if (p <= 0 || p > 1) {
             throw new IllegalArgumentException("P must be between 0 and 1, got: " + p);
         }
@@ -174,17 +175,16 @@ public final class SamplingStrategies {
 
         // Apply temperature if needed
         if (Math.abs(temperature - 1.0f) > 1e-6f) {
-            return sampleWithTemperature(nucleusProbs, temperature);
+            return sampleWithTemperature(nucleusProbs, temperature, random);
         } else {
-            return sampleFromDistribution(nucleusProbs);
+            return sampleFromDistribution(nucleusProbs, random);
         }
     }
 
     /**
      * Sample an index from a probability distribution.
      */
-    private static int sampleFromDistribution(float[] probabilities) {
-        Random random = ThreadLocalRandom.current();
+    private static int sampleFromDistribution(float[] probabilities, FastRandom random) {
         float randomValue = random.nextFloat();
         float cumSum = 0;
 

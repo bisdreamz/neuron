@@ -5,6 +5,7 @@ import dev.neuronic.net.layers.GradientAccumulator;
 import dev.neuronic.net.layers.BaseLayerSpec;
 import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.optimizers.Optimizer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.serialization.SerializationConstants;
@@ -43,7 +44,7 @@ public class LinearRegressionOutput implements Layer, GradientAccumulator, Seria
     private final ThreadLocal<float[]> accumulatedBiasGradients;
     private final ThreadLocal<Boolean> accumulating;
     
-    public LinearRegressionOutput(Optimizer optimizer, int outputs, int inputs) {
+    public LinearRegressionOutput(Optimizer optimizer, int outputs, int inputs, FastRandom random) {
         this.optimizer = optimizer;
         this.weights = new float[inputs][outputs];
         this.biases = new float[outputs];
@@ -60,7 +61,7 @@ public class LinearRegressionOutput implements Layer, GradientAccumulator, Seria
         this.accumulating = ThreadLocal.withInitial(() -> Boolean.FALSE);
         
         // Xavier initialization for linear layers
-        NetMath.weightInitXavier(weights, inputs, outputs);
+        NetMath.weightInitXavier(weights, inputs, outputs, random);
         NetMath.biasInit(biases, 0.0f);
     }
     
@@ -234,14 +235,10 @@ public class LinearRegressionOutput implements Layer, GradientAccumulator, Seria
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
-            return new LinearRegressionOutput(effectiveOptimizer, outputs, inputSize);
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new LinearRegressionOutput(effectiveOptimizer, outputs, inputSize, random);
         }
         
         @Override
@@ -284,7 +281,7 @@ public class LinearRegressionOutput implements Layer, GradientAccumulator, Seria
     /**
      * Static method to deserialize a LinearRegressionOutput from stream.
      */
-    public static LinearRegressionOutput deserialize(DataInputStream in, int version) throws IOException {
+    public static LinearRegressionOutput deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read layer dimensions
         int outputs = in.readInt();
         int inputs = in.readInt();
@@ -307,10 +304,10 @@ public class LinearRegressionOutput implements Layer, GradientAccumulator, Seria
         int optimizerTypeId = in.readInt();
         Optimizer optimizer = SerializationService.deserializeOptimizer(in, optimizerTypeId, version);
         
-        // Create layer and set weights
-        LinearRegressionOutput layer = new LinearRegressionOutput(optimizer, outputs, inputs);
+        // Create layer with provided FastRandom
+        LinearRegressionOutput layer = new LinearRegressionOutput(optimizer, outputs, inputs, random);
         
-        // Copy weights and biases
+        // Overwrite with saved weights and biases
         for (int i = 0; i < inputs; i++) {
             System.arraycopy(weights[i], 0, layer.weights[i], 0, outputs);
         }

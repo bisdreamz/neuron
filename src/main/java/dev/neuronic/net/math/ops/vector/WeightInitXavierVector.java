@@ -5,7 +5,6 @@ import dev.neuronic.net.math.Vectorization;
 import dev.neuronic.net.math.ops.WeightInitXavier;
 import jdk.incubator.vector.FloatVector;
 import jdk.incubator.vector.VectorSpecies;
-import java.util.random.RandomGenerator;
 
 /**
  * Vector implementation of WeightInitXavier.
@@ -14,16 +13,16 @@ import java.util.random.RandomGenerator;
 public final class WeightInitXavierVector implements WeightInitXavier.Impl {
     
     @Override
-    public void compute(float[][] weights, int fanIn, int fanOut) {
+    public void compute(float[][] weights, int fanIn, int fanOut, FastRandom random) {
         if (fanIn <= 0 || fanOut <= 0)
             throw new IllegalArgumentException("fanIn and fanOut must be positive, got: " + fanIn + ", " + fanOut);
             
         float limit = (float)Math.sqrt(6.0f / (fanIn + fanOut));
         
         if (shouldUseVectorized(weights))
-            computeVectorized(weights, limit);
+            computeVectorized(weights, limit, random);
         else
-            computeScalar(weights, limit);
+            computeScalar(weights, limit, random);
     }
     
     private boolean shouldUseVectorized(float[][] weights) {
@@ -34,53 +33,49 @@ public final class WeightInitXavierVector implements WeightInitXavier.Impl {
         return false;
     }
 
-    private void computeVectorized(float[][] weights, float limit) {
+    private void computeVectorized(float[][] weights, float limit, FastRandom random) {
         VectorSpecies<Float> species = Vectorization.getSpecies();
         float twoLimit = 2f * limit;
         FloatVector limitVec = FloatVector.broadcast(species, limit);
         FloatVector twoLimitVec = FloatVector.broadcast(species, twoLimit);
         float[] tmp = new float[species.length()];
         
-        RandomGenerator rnd = FastRandom.get();
-        
         for (float[] row : weights) {
             if (Vectorization.shouldVectorize(row.length))
-                computeRowVectorized(row, limitVec, twoLimitVec, tmp);
+                computeRowVectorized(row, limitVec, twoLimitVec, tmp, random);
             else
-                computeRowScalar(row, twoLimit, rnd);
+                computeRowScalar(row, twoLimit, random);
         }
     }
     
-    private void computeScalar(float[][] weights, float limit) {
+    private void computeScalar(float[][] weights, float limit, FastRandom random) {
         float twoLimit = 2f * limit;
-        RandomGenerator rnd = FastRandom.get();
         
         for (float[] row : weights)
-            computeRowScalar(row, twoLimit, rnd);
+            computeRowScalar(row, twoLimit, random);
     }
     
     private void computeRowVectorized(float[] row, FloatVector limitVec, 
-                                           FloatVector twoLimitVec, float[] tmp) {
+                                           FloatVector twoLimitVec, float[] tmp, FastRandom random) {
         VectorSpecies<Float> species = Vectorization.getSpecies();
         int upper = Vectorization.loopBound(row.length);
 
         for (int i = 0; i < upper; i += species.length()) {
-            FastRandom.fillUniform(tmp, 0f, 1f);
+            random.fillUniform(tmp, 0f, 1f);
             FloatVector.fromArray(species, tmp, 0)
                     .mul(twoLimitVec)
                     .sub(limitVec)
                     .intoArray(row, i);
         }
 
-        RandomGenerator rnd = FastRandom.get();
         float twoLimit = 2f * limitVec.lane(0);
         for (int i = upper; i < row.length; i++) {
-            row[i] = (rnd.nextFloat() - 0.5f) * twoLimit;
+            row[i] = (random.nextFloat() - 0.5f) * twoLimit;
         }
     }
 
-    private void computeRowScalar(float[] row, float twoLimit, RandomGenerator rnd) {
+    private void computeRowScalar(float[] row, float twoLimit, FastRandom random) {
         for (int i = 0; i < row.length; i++)
-            row[i] = (rnd.nextFloat() - 0.5f) * twoLimit;
+            row[i] = (random.nextFloat() - 0.5f) * twoLimit;
     }
 }

@@ -4,6 +4,7 @@ import dev.neuronic.net.Shape;
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.activators.SigmoidActivator;
 import dev.neuronic.net.activators.TanhActivator;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.math.Parallelization;
 import dev.neuronic.net.optimizers.Optimizer;
@@ -202,15 +203,15 @@ public class GruLayer implements Layer, Serializable {
     // Single ThreadLocal for all buffers - major performance improvement
     private final ThreadLocal<GruBuffers> allBuffers;
     
-    public GruLayer(Optimizer optimizer, int hiddenSize, int inputSize, WeightInitStrategy initStrategy) {
-        this(optimizer, hiddenSize, inputSize, initStrategy, OutputMode.ALL_TIMESTEPS);
+    public GruLayer(Optimizer optimizer, int hiddenSize, int inputSize, WeightInitStrategy initStrategy, FastRandom random) {
+        this(optimizer, hiddenSize, inputSize, initStrategy, OutputMode.ALL_TIMESTEPS, random);
     }
     
-    public GruLayer(Optimizer optimizer, int hiddenSize, int inputSize, WeightInitStrategy initStrategy, OutputMode outputMode) {
-        this(optimizer, hiddenSize, inputSize, initStrategy, outputMode, false);
+    public GruLayer(Optimizer optimizer, int hiddenSize, int inputSize, WeightInitStrategy initStrategy, OutputMode outputMode, FastRandom random) {
+        this(optimizer, hiddenSize, inputSize, initStrategy, outputMode, false, random);
     }
     
-    public GruLayer(Optimizer optimizer, int hiddenSize, int inputSize, WeightInitStrategy initStrategy, OutputMode outputMode, boolean useLayerNorm) {
+    public GruLayer(Optimizer optimizer, int hiddenSize, int inputSize, WeightInitStrategy initStrategy, OutputMode outputMode, boolean useLayerNorm, FastRandom random) {
         if (optimizer == null)
             throw new IllegalArgumentException("Optimizer cannot be null");
         if (hiddenSize <= 0)
@@ -254,20 +255,20 @@ public class GruLayer implements Layer, Serializable {
         // Initialize consolidated ThreadLocal buffer container
         this.allBuffers = ThreadLocal.withInitial(() -> new GruBuffers(hiddenSize, inputSize, totalInputSize));
         
-        initializeWeights(initStrategy);
+        initializeWeights(initStrategy, random);
     }
     
-    private void initializeWeights(WeightInitStrategy strategy) {
+    private void initializeWeights(WeightInitStrategy strategy, FastRandom random) {
         switch (strategy) {
             case XAVIER -> {
-                NetMath.weightInitXavier(resetWeights, inputSize + hiddenSize, hiddenSize);
-                NetMath.weightInitXavier(updateWeights, inputSize + hiddenSize, hiddenSize);
-                NetMath.weightInitXavier(candidateWeights, inputSize + hiddenSize, hiddenSize);
+                NetMath.weightInitXavier(resetWeights, inputSize + hiddenSize, hiddenSize, random);
+                NetMath.weightInitXavier(updateWeights, inputSize + hiddenSize, hiddenSize, random);
+                NetMath.weightInitXavier(candidateWeights, inputSize + hiddenSize, hiddenSize, random);
             }
             case HE -> {
-                NetMath.weightInitHe(resetWeights, inputSize + hiddenSize);
-                NetMath.weightInitHe(updateWeights, inputSize + hiddenSize);
-                NetMath.weightInitHe(candidateWeights, inputSize + hiddenSize);
+                NetMath.weightInitHe(resetWeights, inputSize + hiddenSize, random);
+                NetMath.weightInitHe(updateWeights, inputSize + hiddenSize, random);
+                NetMath.weightInitHe(candidateWeights, inputSize + hiddenSize, random);
             }
         }
         
@@ -1002,14 +1003,10 @@ public class GruLayer implements Layer, Serializable {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
-            return new GruLayer(effectiveOptimizer, hiddenSize, inputSize, initStrategy);
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new GruLayer(effectiveOptimizer, hiddenSize, inputSize, initStrategy, random);
         }
         
     }
@@ -1047,7 +1044,7 @@ public class GruLayer implements Layer, Serializable {
         }
         
         @Override
-        public Layer create(Shape inputShape, Optimizer effectiveOptimizer) {
+        public Layer create(Shape inputShape, Optimizer effectiveOptimizer, FastRandom random) {
             if (effectiveOptimizer == null) {
                 effectiveOptimizer = getEffectiveOptimizer(null);
             }
@@ -1055,10 +1052,10 @@ public class GruLayer implements Layer, Serializable {
             if (inputShape.rank() == 2) {
                 // Perfect! We have [seqLen, features]
                 int features = inputShape.dim(1);
-                return new GruLayer(effectiveOptimizer, hiddenSize, features, initStrategy, OutputMode.ALL_TIMESTEPS);
+                return new GruLayer(effectiveOptimizer, hiddenSize, features, initStrategy, OutputMode.ALL_TIMESTEPS, random);
             } else if (inputShape.rank() == 1) {
                 // Fall back to old behavior
-                return create(inputShape.toFlatSize(), effectiveOptimizer);
+                return create(inputShape.toFlatSize(), effectiveOptimizer, random);
             }
             
             throw new IllegalArgumentException("GRU cannot handle shape: " + inputShape);
@@ -1078,15 +1075,9 @@ public class GruLayer implements Layer, Serializable {
             throw new IllegalArgumentException("GRU cannot determine output shape for input shape: " + inputShape);
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            // For GRU, inputSize = sequenceLength × inputDimension
-            // This is set by the previous layer (e.g., InputEmbeddingLayer outputs seqLen × embeddingDim)
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
             // For GRU, inputSize is usually seqLen * embeddingDim from InputSequenceEmbeddingLayer
             // GRU needs per-timestep size (embeddingDim), not the full flattened size
             
@@ -1107,7 +1098,7 @@ public class GruLayer implements Layer, Serializable {
             }
             
             // Create the GRU layer with per-timestep input size
-            GruLayer layer = new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.ALL_TIMESTEPS);
+            GruLayer layer = new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.ALL_TIMESTEPS, random);
             // Cache the input dimension for output size calculation
             this.cachedInputDimension = layer.inputSize;
             return layer;
@@ -1162,13 +1153,9 @@ public class GruLayer implements Layer, Serializable {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
             // For GRU, inputSize is usually seqLen * embeddingDim from InputSequenceEmbeddingLayer
             // GRU needs per-timestep size (embeddingDim), not the full flattened size
             
@@ -1192,7 +1179,7 @@ public class GruLayer implements Layer, Serializable {
                 }
             }
             
-            return new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.LAST_TIMESTEP);
+            return new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.LAST_TIMESTEP, random);
         }
         
         // getOutputSize() from parent correctly returns hiddenSize
@@ -1240,7 +1227,7 @@ public class GruLayer implements Layer, Serializable {
         throw new UnsupportedOperationException("Use deserialize(DataInputStream, int) static method instead");
     }
     
-    public static GruLayer deserialize(DataInputStream in, int version) throws IOException {
+    public static GruLayer deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         int hiddenSize = in.readInt();
         int inputSize = in.readInt();
         
@@ -1259,8 +1246,8 @@ public class GruLayer implements Layer, Serializable {
         
         Optimizer optimizer = readOptimizer(in, version);
         
-        // Create layer with correct output mode
-        GruLayer layer = new GruLayer(optimizer, hiddenSize, inputSize, WeightInitStrategy.XAVIER, outputMode);
+        // Create layer with correct output mode and provided FastRandom
+        GruLayer layer = new GruLayer(optimizer, hiddenSize, inputSize, WeightInitStrategy.XAVIER, outputMode, random);
         
         // Copy deserialized weights and biases
         copyWeightMatrix(resetWeights, layer.resetWeights);
@@ -1653,13 +1640,9 @@ public class GruLayer implements Layer, Serializable {
             return inputSize * hiddenSize / 128; // Rough estimate assuming 128-dim embeddings
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return create(inputSize, null);
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
             // For language models, inputSize is usually seqLen * embeddingDim from InputSequenceEmbeddingLayer
             // GRU needs per-timestep size (embeddingDim), not the full flattened size
             // We'll use the same logic as the regular GRU specs to infer the per-timestep size
@@ -1679,7 +1662,7 @@ public class GruLayer implements Layer, Serializable {
                 }
             }
             
-            return new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.ALL_TIMESTEPS, true);
+            return new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.ALL_TIMESTEPS, true, random);
         }
     }
     
@@ -1697,13 +1680,9 @@ public class GruLayer implements Layer, Serializable {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return create(inputSize, null);
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
             // For language models, inputSize is usually seqLen * embeddingDim from InputSequenceEmbeddingLayer
             // GRU needs per-timestep size (embeddingDim), not the full flattened size
             // We'll use the same logic as the regular GRU specs to infer the per-timestep size
@@ -1723,7 +1702,7 @@ public class GruLayer implements Layer, Serializable {
                 }
             }
             
-            return new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.LAST_TIMESTEP, true);
+            return new GruLayer(effectiveOptimizer, hiddenSize, perTimestepSize, initStrategy, OutputMode.LAST_TIMESTEP, true, random);
         }
     }
 }

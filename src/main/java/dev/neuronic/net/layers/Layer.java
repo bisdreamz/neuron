@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.Shape;
 import dev.neuronic.net.losses.Loss;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.Optimizer;
 
 import java.util.concurrent.ExecutorService;
@@ -184,21 +185,17 @@ public interface Layer {
      * is created with the correct input size during network construction.
      */
     public static interface Spec {
-        Layer create(int inputSize);
-        int getOutputSize();
-        
         /**
-         * Create a layer with the specified input size and default optimizer.
-         * The default implementation ignores the default optimizer and calls create(inputSize).
-         * Implementations that support optimizer inheritance should override this method.
+         * Create a layer with the specified input size, default optimizer, and random number generator.
          * 
          * @param inputSize the input size for the layer
          * @param defaultOptimizer the default optimizer from the network builder (may be null)
+         * @param random the random number generator for reproducible results
          * @return the created layer
          */
-        default Layer create(int inputSize, Optimizer defaultOptimizer) {
-            return create(inputSize);
-        }
+        Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random);
+        
+        int getOutputSize();
         
         /**
          * Calculate the output size given the input size.
@@ -220,18 +217,19 @@ public interface Layer {
         // ===== NEW SHAPE-AWARE API =====
         
         /**
-         * Create a layer with the specified input shape and default optimizer.
+         * Create a layer with the specified input shape, default optimizer, and random number generator.
          * 
          * <p>This shape-aware method enables proper handling of multi-dimensional data.
          * The default implementation converts to flat size for backward compatibility.
          * 
          * @param inputShape the shape of the input tensor
          * @param defaultOptimizer the default optimizer from the network builder (may be null)
+         * @param random the random number generator for reproducible results
          * @return the created layer
          */
-        default Layer create(Shape inputShape, Optimizer defaultOptimizer) {
+        default Layer create(Shape inputShape, Optimizer defaultOptimizer, FastRandom random) {
             // Default: flatten to 1D for backward compatibility
-            return create(inputShape.toFlatSize(), defaultOptimizer);
+            return create(inputShape.toFlatSize(), defaultOptimizer, random);
         }
         
         /**
