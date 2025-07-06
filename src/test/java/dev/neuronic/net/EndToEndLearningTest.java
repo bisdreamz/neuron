@@ -21,6 +21,7 @@ public class EndToEndLearningTest {
         NeuralNet net = NeuralNet.newBuilder()
             .input(1)
             .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f))  // Increased learning rate
+            .withSeed(42L)  // Use fixed seed for deterministic test
             .layer(Layers.hiddenDenseRelu(8))
             .output(Layers.outputLinearRegression(1));
         
@@ -55,6 +56,7 @@ public class EndToEndLearningTest {
             NeuralNet.newBuilder()
                 .input(2) // 2-word context
                 .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f))
+                .withSeed(42L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(2, 10, 4))
                 .layer(Layers.hiddenDenseRelu(8))
                 .output(Layers.outputSoftmaxCrossEntropy(10))
@@ -104,6 +106,7 @@ public class EndToEndLearningTest {
         NeuralNet net = NeuralNet.newBuilder()
             .input(3)
             .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f))
+            .withSeed(42L)  // Use fixed seed for deterministic test
             .layer(Layers.hiddenDenseRelu(5))
             .output(Layers.outputSoftmaxCrossEntropy(4));
         
