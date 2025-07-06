@@ -1,18 +1,38 @@
 # NEURON - High-Performance Neural Networks for Java
 
+> **Note**: This is an exploratory project by Evan MacZura and co-authored with Claude. While well-tested, it should be considered experimental.
+
 ## Overview
 
-SimpleNet is a high-performance neural network library for Java that leverages the Java Vector API to achieve exceptional CPU performance.
-Built a focus on ease of use and performance as core principles, SimpleNet makes deep learning accessible to Java developers without sacrificing speed. Also readily
-supports per batch or per sample training in online learning for applicable network configurations.
+Neuron is a high-performance neural network library for Java that (optionally) leverages the Java Vector API to achieve exceptional CPU performance. Built with a focus on ease of use and performance as core principles, Neuron makes deep learning accessible to Java developers without sacrificing speed. The library readily supports per-batch or per-sample training for online learning scenarios.
 
 
-## Why
+## Installation
 
-Neural net support in Java is second class, despite Java's popularity. DL4J is a very capable reference implementation,
-but the CPU training and inference latency is quite slow which makes it unusable in high throughput use cases, as well as
-it requires a thorough education in ML to utilize properly. SimpleNet API is designed to guide the user in an intuitive fashion,
-while also solving a lot of the error prone repeated work that is commony required, such as handling embeddings or one-hot encoding automatically.
+Add Neuron to your project using JitPack:
+
+### Maven
+```xml
+<repositories>
+    <repository>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
+    </repository>
+</repositories>
+
+<dependency>
+    <groupId>com.github.bisdreamz</groupId>
+    <artifactId>neuron</artifactId>
+    <version>1.0.4</version>
+</dependency>
+```
+
+## Why Neuron?
+
+Neural net support in Java is second class, despite Java's popularity. DL4J is a very capable reference implementation, 
+but the CPU training and inference latency is quite slow (driven by jni overhead and openblas synchronization) which makes it unusable in high throughput use cases, and it requires a thorough education in ML to utilize properly. 
+Neuron's API is designed to guide the user in an intuitive fashion, while also solving a lot of the error prone repeated work that is commonly required, such as handling embeddings or one-hot encoding automatically.
+Neural is ML, made easy.
 
 ### Key Features
 
@@ -23,16 +43,46 @@ while also solving a lot of the error prone repeated work that is commony requir
 - **Automatic Vectorization** - Uses SIMD instructions when available, with automatic fallback to scalar operations
 - **Thread-Safe Architecture** - Concurrent training and inference with automatic parallelization
 - **Type-Safe API** - Intuitive wrappers for different data types (Int, Float, String) 
-- **Production-Ready** - Comprehensive serialization, early stopping, and monitoring
 - **Discoverable API** - Everything you need is accessible from the main classes
 
 ### Design Philosophy
 
-SimpleNet prioritizes:
+Neuron prioritizes:
 - **Performance**: Vectorized operations, zero-allocation hot paths, and smart parallelization
 - **Simplicity**: Clean, intuitive APIs that are easy to discover and use - no ML expertise required
 - **Type Safety**: Specialized wrappers prevent common errors at compile time
 - **Flexibility**: Use high-level SimpleNet API or low-level NeuralNet for full control
+
+## SimpleNet vs NeuralNet: Which API to Use?
+
+Neuron provides two complementary APIs:
+
+### SimpleNet - High-Level Convenience API
+Use SimpleNet when you want:
+- **Automatic type conversions**: Work with native Java types (String, int, Map) instead of float arrays
+- **Built-in encoding/decoding**: Automatic one-hot encoding, vocabulary management, and label handling
+- **Named inputs/outputs**: Use meaningful names instead of array indices
+- **Quick prototyping**: Get started fast without boilerplate
+
+```java
+// SimpleNet handles all conversions automatically
+SimpleNetInt classifier = SimpleNet.ofIntClassification(net);
+classifier.train(features, 5);           // Pass actual label value
+int predicted = classifier.predict(features);  // Get actual label back
+```
+
+### NeuralNet - Low-Level Direct API
+Use NeuralNet when you need:
+- **Direct float[] operations**: Full control over data representation
+- **Custom architectures**: Build complex or experimental network designs
+- **Maximum performance**: Skip conversion overhead for pre-processed data
+- **Integration flexibility**: When working with existing ML pipelines
+
+```java
+// NeuralNet works directly with float arrays
+float[] output = net.predict(inputFloats);
+net.train(inputFloats, targetFloats);
+```
 
 ## Quick Start
 
@@ -43,8 +93,7 @@ SimpleNet prioritizes:
 AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.01f);
 NeuralNet net = NeuralNet.newBuilder()
     .input(784)  // 28x28 images flattened
-    .layer(Layers.hiddenDenseRelu(256, optimizer))
-    .layer(Layers.hiddenDenseRelu(128, optimizer))
+    .layer(Layers.hiddenDenseRelu(64, optimizer))
     .output(Layers.outputSoftmaxCrossEntropy(10, optimizer));
 
 // Wrap with type-safe SimpleNet - returns int labels directly!
@@ -77,9 +126,9 @@ int[] topPredictions = classifier.predictTopK(testImage, 3);  // e.g., [7, 9, 4]
 AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.01f);
 NeuralNet net = NeuralNet.newBuilder()
     .input(20)  // sequence length
-    .layer(Layers.inputSequenceEmbedding(20, 10000, 256, optimizer))
+    .layer(Layers.inputSequenceEmbedding(20, 10000, 256, optimizer))  // 10k vocab is typical
     .layer(Layers.hiddenGruLast(512, optimizer))
-    .output(Layers.outputSoftmaxCrossEntropy(10000, optimizer));
+    .output(Layers.outputSoftmaxCrossEntropy(10000, optimizer));      // Same vocab size
 
 // Wrap as language model - handles all vocabulary management!
 SimpleNetLanguageModel model = SimpleNet.ofLanguageModel(net);
@@ -102,13 +151,19 @@ model.trainBulk(sequences, nextWords,
 String[] prompt = {"The", "quick", "brown"};
 String nextWord = model.predictNext(prompt);
 String[] topWords = model.predictTopK(prompt, 5);
+
+// Configure sampling for creative generation
+model.setSamplingConfig(SamplingConfig.temperature(0.8f));      // Balanced creativity
+// model.setSamplingConfig(SamplingConfig.topK(40, 0.9f));      // Top-40 with temperature
+// model.setSamplingConfig(SamplingConfig.topP(0.95f));         // Nucleus sampling
+String creativeNext = model.predictNext(prompt);                // Now uses sampling!
 ```
 
-## Why SimpleNet Makes Your Life Easier
+## Why Neuron Makes Your Life Easier
 
 ### Automatic Encoding/Decoding
 
-SimpleNet handles all the tedious data transformation for you:
+Neuron's SimpleNet API handles all the tedious data transformation for you:
 
 ```java
 // Without SimpleNet - Manual encoding required
@@ -262,6 +317,71 @@ textClassifier.train("Terrible experience", "negative");
 String sentiment = textClassifier.predictString("Great product!");  // Returns "positive"
 ```
 
+## Embeddings: A Complete Guide
+
+Neuron provides three types of embeddings for different use cases:
+
+### Standard Embeddings
+Traditional trainable embeddings with dictionary management:
+```java
+Feature.embedding(10000, 32, "product_id")  // Max 10k products, 32-dim embeddings
+```
+- **Use when**: You have a known, limited vocabulary
+- **Pros**: Exact representation for each value
+- **Cons**: Fixed vocabulary size, fails on unknown values
+- **Learning rate**: 5x multiplier by default for faster convergence
+
+### Embedding LRU (Least Recently Used)
+Automatically evicts old entries when capacity is reached:
+```java
+Feature.embeddingLRU(1000, 32, "user_id")  // Keeps 1000 most recent users
+```
+- **Use when**: Online learning with evolving vocabulary
+- **Pros**: Handles new values automatically, memory bounded
+- **Cons**: May forget rarely seen values
+- **Example**: User modeling where new users appear daily
+
+### Hashed Embeddings
+Uses multiple hash functions for unlimited vocabulary:
+```java
+Feature.hashedEmbedding(50000, 32, "domain")  // 50k hash buckets, 32-dim
+```
+- **Use when**: Vocabulary size unknown or unbounded
+- **Pros**: No dictionary needed, handles any input, collision resistant
+- **Cons**: Hash collisions possible (minimized by multiple hashes)
+- **Example**: Domain names, URLs, or any high-cardinality features
+
+### Embedding Learning Rate
+
+By default, embeddings train 5x faster than other parameters:
+```java
+// Default: embeddings use 5x the base learning rate
+AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.01f);
+// Embeddings will effectively use 0.005f learning rate
+
+// Customize the multiplier if needed
+Layer.Spec embedding = Layers.inputMixed(
+    Feature.embedding(10000, 32, "item").withLearningRateMultiplier(3.0)
+);
+```
+
+### Example: E-commerce Recommendation System
+```java
+// Mix different embedding types based on your needs
+NeuralNet net = NeuralNet.newBuilder()
+    .input(5)
+    .setDefaultOptimizer(new AdamWOptimizer(0.001f, 0.01f))
+    .layer(Layers.inputMixed(
+        Feature.embedding(100000, 64, "product_id"),      // Fixed catalog
+        Feature.embeddingLRU(50000, 32, "user_id"),      // Active users
+        Feature.hashedEmbedding(100000, 32, "referrer"), // Unlimited domains
+        Feature.oneHot(7, "day_of_week"),
+        Feature.passthrough("hour_of_day")
+    ))
+    .layer(Layers.hiddenDenseRelu(256))
+    .output(Layers.outputSigmoidBinaryCrossEntropy(1));  // Click prediction
+```
+
 ## Components
 
 ### Layers
@@ -285,8 +405,10 @@ String sentiment = textClassifier.predictString("Great product!");  // Returns "
 
 ### Loss Functions
 - **MseLoss** - Mean Squared Error for regression
+- **HuberLoss** - Robust regression loss (less sensitive to outliers)
 - **CrossEntropyLoss** - Cross-entropy for classification
 - **SoftmaxCrossEntropyOutput** - Fused softmax + cross-entropy for efficiency
+- **SigmoidBinaryCrossEntropyOutput** - Binary classification with sigmoid
 
 ## Mixed Feature Input Layers
 
@@ -443,14 +565,14 @@ System.out.printf("Recommended allocation: Stocks=%.1f%%, Bonds=%.1f%%, RE=%.1f%
 For full control, use the NeuralNet API directly:
 
 ```java
-// Build a custom architecture
+// Build a custom architecture for classification
 AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.01f);
 NeuralNet net = NeuralNet.newBuilder()
     .input(784)
     .layer(Layers.hiddenDenseRelu(256, optimizer))
     .layer(Layers.dropout(0.5))
     .layer(Layers.hiddenDenseRelu(128, optimizer))
-    .layer(Layers.hiddenGruLast(64, optimizer))
+    .layer(Layers.dropout(0.3))
     .output(Layers.outputSoftmaxCrossEntropy(10, optimizer));
 
 // Thread-safe concurrent training
@@ -549,24 +671,115 @@ trainer.withCallback(new ProgressCallback(detailed: true))
       });
 ```
 
-## Why Choose SimpleNet
+## Why Choose Neuron
 
-**Performance Without Complexity**: Unlike other Java ML libraries that wrap native code or require complex setup, SimpleNet is pure Java that outperforms them through smart engineering.
+**Performance Without Complexity**: Unlike other Java ML libraries that wrap native code or require complex setup, Neuron is pure Java that outperforms them through smart engineering.
 
 **Designed for Java Developers**: The API feels natural to Java developers - no Python-isms or foreign concepts. Everything follows Java best practices.
 
-**Production Ready**: With features like thread-safe training, comprehensive serialization, early stopping, and gradient clipping, SimpleNet is ready for real applications.
+**Production Ready**: With features like thread-safe training, comprehensive serialization, early stopping, and gradient clipping, Neuron is ready for real applications.
 
 **Learn by Reading**: The codebase is clean, well-documented, and follows consistent patterns. It's designed to be readable and educational.
 
+## Advanced Training Features
+
+### Gradient Clipping
+
+Essential for stable training of RNNs and deep networks:
+
+```java
+// Global gradient clipping during training
+net.trainBatchWithGlobalClipping(inputs, targets, 1.0f);  // Clip gradients to norm 1.0
+
+// Recommended settings:
+// - RNNs/GRUs: 1.0 to 5.0
+// - Language models: 1.0
+// - Deep networks: 1.0 to 2.0
+// - If unstable: try 0.5
+```
+
+### Deterministic Training with Seeds
+
+Ensure reproducible results across runs:
+
+```java
+NeuralNet net = NeuralNet.newBuilder()
+    .input(784)
+    .withSeed(42L)  // Fixed seed for reproducible initialization
+    .layer(Layers.hiddenDenseRelu(128))
+    .output(Layers.outputSoftmaxCrossEntropy(10));
+
+// Same seed = same initial weights = reproducible training
+```
+
+### Dropout Regularization
+
+Prevent overfitting with intelligent dropout:
+
+```java
+NeuralNet net = NeuralNet.newBuilder()
+    .input(784)
+    .layer(Layers.hiddenDenseRelu(256))
+    .layer(Layers.dropout(0.5))  // 50% dropout during training
+    .layer(Layers.hiddenDenseRelu(128))
+    .layer(Layers.dropout(0.3))  // 30% dropout
+    .output(Layers.outputSoftmaxCrossEntropy(10));
+
+// Dropout automatically disabled during inference
+float[] prediction = net.predict(input);  // No dropout applied
+```
+
+### Huber Loss for Robust Regression
+
+Less sensitive to outliers than MSE:
+
+```java
+// Huber loss with delta=1.0 (transitions at |error|=1.0)
+NeuralNet net = NeuralNet.newBuilder()
+    .input(features)
+    .layer(Layers.hiddenDenseRelu(64))
+    .output(Layers.outputHuberRegression(1, optimizer, 1.0f));
+
+// Behaves like:
+// - MSE for small errors (|error| < delta)
+// - Linear loss for large errors (|error| >= delta)
+```
+
+### Text Generation with Sampling Strategies
+
+Control the creativity and quality of generated text:
+
+```java
+SimpleNetLanguageModel model = SimpleNet.ofLanguageModel(net);
+
+// Deterministic (always picks highest probability word)
+model.setSamplingConfig(SamplingConfig.argmax());
+String predictable = model.predictNext(prompt);
+
+// Temperature sampling (higher = more creative)
+model.setSamplingConfig(SamplingConfig.temperature(0.7f));  // Conservative
+model.setSamplingConfig(SamplingConfig.temperature(1.2f));  // Creative
+
+// Top-K sampling (sample from top K words)
+model.setSamplingConfig(SamplingConfig.topK(40));          // Top 40 words
+model.setSamplingConfig(SamplingConfig.topK(40, 0.8f));    // With temperature
+
+// Top-P (nucleus) sampling (sample from smallest set with cumulative prob P)
+model.setSamplingConfig(SamplingConfig.topP(0.9f));        // 90% probability mass
+model.setSamplingConfig(SamplingConfig.topP(0.95f, 0.8f)); // With temperature
+
+// Generate with current sampling strategy
+String nextWord = model.predictNext(prompt);
+```
+
 ## Additional Capabilities
 
-- **Gradient Clipping**: Essential for training RNNs and deep networks
 - **Learning Rate Scheduling**: Cosine annealing, step decay, reduce on plateau
-- **Weight Initialization**: He and Xavier initialization strategies
-- **Comprehensive Testing**: 350+ tests ensure reliability
+- **Weight Initialization**: He (for ReLU) and Xavier (for sigmoid/tanh) strategies
+- **Comprehensive Testing**: 400+ tests ensure reliability
 - **Benchmarking Suite**: Track performance across different operations
 - **Memory Efficient**: Careful memory management for large-scale training
+- **Thread-Safe Training**: Concurrent training and inference support
 
 ## Requirements
 
@@ -582,8 +795,8 @@ trainer.withCallback(new ProgressCallback(detailed: true))
 
 ## License
 
-[Add your license here]
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-SimpleNet makes neural networks in Java simple, fast, and enjoyable. Whether you're building a quick prototype or a production system, SimpleNet provides the performance and ease of use you need.
+Neuron makes neural networks in Java simple, fast, and enjoyable. Whether you're building a quick prototype or a production system, Neuron provides the performance and ease of use you need.
