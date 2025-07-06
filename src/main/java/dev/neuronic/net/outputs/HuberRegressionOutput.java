@@ -5,6 +5,7 @@ import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.GradientAccumulator;
 import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.optimizers.Optimizer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.losses.HuberLoss;
 import dev.neuronic.net.serialization.Serializable;
@@ -55,7 +56,7 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
     private final ThreadLocal<float[]> accumulatedBiasGradients;
     private final ThreadLocal<Boolean> accumulating;
     
-    public HuberRegressionOutput(Optimizer optimizer, int outputs, int inputs, float delta) {
+    public HuberRegressionOutput(Optimizer optimizer, int outputs, int inputs, float delta, FastRandom random) {
         this.optimizer = optimizer;
         this.weights = new float[inputs][outputs];
         this.biases = new float[outputs];
@@ -74,7 +75,7 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
         this.accumulating = ThreadLocal.withInitial(() -> Boolean.FALSE);
         
         // Xavier initialization for linear layers
-        NetMath.weightInitXavier(weights, inputs, outputs);
+        NetMath.weightInitXavier(weights, inputs, outputs, random);
         NetMath.biasInit(biases, 0.0f);
     }
     
@@ -264,14 +265,10 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
-            return new HuberRegressionOutput(effectiveOptimizer, outputs, inputSize, delta);
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new HuberRegressionOutput(effectiveOptimizer, outputs, inputSize, delta, random);
         }
         
         @Override
@@ -313,7 +310,7 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
     /**
      * Static method to deserialize a HuberRegressionOutput from stream.
      */
-    public static HuberRegressionOutput deserialize(DataInputStream in, int version) throws IOException {
+    public static HuberRegressionOutput deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read layer dimensions
         int outputs = in.readInt();
         int inputs = in.readInt();
@@ -335,10 +332,10 @@ public class HuberRegressionOutput implements Layer, GradientAccumulator, Serial
         int optimizerTypeId = in.readInt();
         Optimizer optimizer = SerializationService.deserializeOptimizer(in, optimizerTypeId, version);
         
-        // Create layer and set weights
-        HuberRegressionOutput layer = new HuberRegressionOutput(optimizer, outputs, inputs, delta);
+        // Create layer with provided FastRandom
+        HuberRegressionOutput layer = new HuberRegressionOutput(optimizer, outputs, inputs, delta, random);
         
-        // Copy weights and biases
+        // Overwrite with saved weights and biases
         for (int i = 0; i < inputs; i++)
             System.arraycopy(weights[i], 0, layer.weights[i], 0, outputs);
         

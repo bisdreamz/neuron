@@ -4,6 +4,7 @@ import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.BaseLayerSpec;
 import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.optimizers.Optimizer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 
 /**
@@ -30,7 +31,7 @@ public class MultiLabelSigmoidOutput implements Layer {
     private final PooledFloatArray labelBufferPool;       // For label-sized arrays
     private final PooledFloatArray inputBufferPool;       // For input-sized arrays
     
-    public MultiLabelSigmoidOutput(Optimizer optimizer, int labels, int inputs) {
+    public MultiLabelSigmoidOutput(Optimizer optimizer, int labels, int inputs, FastRandom random) {
         this.optimizer = optimizer;
         this.weights = new float[inputs][labels];
         this.biases = new float[labels];
@@ -41,7 +42,7 @@ public class MultiLabelSigmoidOutput implements Layer {
         this.inputBufferPool = new PooledFloatArray(inputs);
         
         // Xavier initialization for sigmoid
-        NetMath.weightInitXavier(weights, inputs, labels);
+        NetMath.weightInitXavier(weights, inputs, labels, random);
         NetMath.biasInit(biases, 0.0f);
     }
     
@@ -162,14 +163,10 @@ public class MultiLabelSigmoidOutput implements Layer {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
-            return new MultiLabelSigmoidOutput(effectiveOptimizer, labels, inputSize);
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new MultiLabelSigmoidOutput(effectiveOptimizer, labels, inputSize, random);
         }
         
         @Override

@@ -1,6 +1,7 @@
 package dev.neuronic.net;
 
 import dev.neuronic.net.layers.Layer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.Optimizer;
 
 import java.util.ArrayList;
@@ -50,6 +51,7 @@ public class NeuralNetBuilder {
     private ExecutorService executor = null;
     private Optimizer defaultOptimizer = null;
     private float globalGradientClipNorm = 10.0f; // Safety default to prevent NaN
+    private Long seed = null; // Optional seed for reproducible results
 
     public NeuralNetBuilder input(int size) {
         this.inputSize = size;
@@ -183,7 +185,18 @@ public class NeuralNetBuilder {
         return this;
     }
     
-
+    /**
+     * Set a seed for reproducible random number generation.
+     * This affects weight initialization, dropout, and any other randomness in the network.
+     * 
+     * @param seed the random seed to use
+     * @return this builder for method chaining
+     */
+    public NeuralNetBuilder withSeed(long seed) {
+        this.seed = seed;
+        return this;
+    }
+    
     /**
      * Set the output layer and build the network.
      * Use Layers.outputXxx() methods for proper output layer creation.
@@ -191,6 +204,9 @@ public class NeuralNetBuilder {
     public NeuralNet output(Layer.Spec outputLayerSpec) {
         // Add output layer to the list
         layerSpecs.add(outputLayerSpec);
+        
+        // Create FastRandom instance if seed is provided
+        FastRandom random = (seed != null) ? new FastRandom(seed) : new FastRandom();
         
         // Build all layers
         Layer[] layers = new Layer[layerSpecs.size()];
@@ -206,14 +222,14 @@ public class NeuralNetBuilder {
                 spec.validateInputShape(currentShape);
                 
                 // Create with shape information
-                layers[i] = spec.create(currentShape, defaultOptimizer);
+                layers[i] = spec.create(currentShape, defaultOptimizer, random);
                 
                 // Get output shape for next layer
                 currentShape = spec.getOutputShape(currentShape);
                 currentInputSize = currentShape.toFlatSize();
             } else {
                 // Fall back to legacy API
-                layers[i] = spec.create(currentInputSize, defaultOptimizer);
+                layers[i] = spec.create(currentInputSize, defaultOptimizer, random);
                 currentInputSize = spec.getOutputSize(currentInputSize);
                 
                 // Try to maintain shape information
@@ -222,8 +238,8 @@ public class NeuralNetBuilder {
                 }
             }
         }
-
-        return new NeuralNet(layers, executor, globalGradientClipNorm);
+        
+        return new NeuralNet(layers, executor, globalGradientClipNorm, random, seed);
     }
     
 

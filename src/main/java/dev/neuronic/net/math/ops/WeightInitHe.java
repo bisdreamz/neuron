@@ -1,7 +1,7 @@
 package dev.neuronic.net.math.ops;
 
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.Vectorization;
-import java.util.Random;
 
 /**
  * He weight initialization - the modern standard for ReLU networks.
@@ -32,27 +32,26 @@ import java.util.Random;
 public final class WeightInitHe {
     
     public interface Impl {
-        void compute(float[][] weights, int fanIn);
-        void compute(float[][] weights, int fanIn, float noiseLevel);
+        void compute(float[][] weights, int fanIn, FastRandom random);
+        void compute(float[][] weights, int fanIn, float noiseLevel, FastRandom random);
     }
     
     private static final class ScalarImpl implements Impl {
         @Override
-        public void compute(float[][] weights, int fanIn) {
-            compute(weights, fanIn, 0.0f);
+        public void compute(float[][] weights, int fanIn, FastRandom random) {
+            compute(weights, fanIn, 0.0f, random);
         }
 
         @Override
-        public void compute(float[][] weights, int fanIn, float noiseLevel) {
+        public void compute(float[][] weights, int fanIn, float noiseLevel, FastRandom random) {
             if (fanIn <= 0)
                 throw new IllegalArgumentException("fanIn must be positive, got: " + fanIn);
             
             float scale = (float) Math.sqrt(2.0 / fanIn);
-            Random rnd = new Random();
             
             for (float[] row : weights) {
                 for (int i = 0; i < row.length; i++) {
-                    row[i] = (float)(rnd.nextGaussian() * scale) + (rnd.nextFloat() - 0.5f) * noiseLevel;
+                    row[i] = (float)(random.nextGaussian() * scale) + (random.nextFloat() - 0.5f) * noiseLevel;
                 }
             }
         }
@@ -81,10 +80,11 @@ public final class WeightInitHe {
      * 
      * @param weights 2D weight matrix to initialize
      * @param fanIn number of inputs (must be > 0)
+     * @param random random number generator
      * @throws IllegalArgumentException if fanIn <= 0
      */
-    public static void compute(float[][] weights, int fanIn) {
-        IMPL.compute(weights, fanIn);
+    public static void compute(float[][] weights, int fanIn, FastRandom random) {
+        IMPL.compute(weights, fanIn, random);
     }
 
     /**
@@ -93,17 +93,10 @@ public final class WeightInitHe {
      * @param weights 2D weight matrix to initialize
      * @param fanIn number of inputs (must be > 0)
      * @param noiseLevel the level of uniform noise to add
+     * @param random random number generator
      * @throws IllegalArgumentException if fanIn <= 0
      */
-    public static void compute(float[][] weights, int fanIn, float noiseLevel) {
-        IMPL.compute(weights, fanIn, noiseLevel);
-    }
-    
-    static void computeVectorized(float[][] weights, float scale) {
-        IMPL.compute(weights, (int)(2.0f / (scale * scale)));
-    }
-    
-    static void computeScalar(float[][] weights, float scale) {
-        new ScalarImpl().compute(weights, (int)(2.0f / (scale * scale)));
+    public static void compute(float[][] weights, int fanIn, float noiseLevel, FastRandom random) {
+        IMPL.compute(weights, fanIn, noiseLevel, random);
     }
 }

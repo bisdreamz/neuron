@@ -1,6 +1,7 @@
 package dev.neuronic.net.layers;
 
 import org.junit.jupiter.api.Test;
+import dev.neuronic.net.math.FastRandom;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -10,28 +11,32 @@ public class DropoutLayerTest {
     
     @Test
     void testConstruction() {
-        DropoutLayer layer = new DropoutLayer(0.5f, 100);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.5f, 100, random);
         assertEquals(100, layer.getOutputSize());
         assertEquals(0.5f, layer.getDropoutRate(), EPSILON);
     }
     
     @Test
     void testInvalidDropoutRate() {
-        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(-0.1f, 100));
-        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(1.0f, 100));
-        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(1.5f, 100));
+        FastRandom random = new FastRandom(12345);
+        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(-0.1f, 100, random));
+        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(1.0f, 100, random));
+        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(1.5f, 100, random));
     }
     
     @Test
     void testInvalidSize() {
-        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(0.5f, 0));
-        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(0.5f, -2)); // -1 is valid for dynamic
+        FastRandom random = new FastRandom(12345);
+        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(0.5f, 0, random));
+        assertThrows(IllegalArgumentException.class, () -> new DropoutLayer(0.5f, -2, random)); // -1 is valid for dynamic
     }
     
     @Test
     void testForwardWithDropout() {
         // Dropout now always applies the dropout mask
-        DropoutLayer layer = new DropoutLayer(0.5f, 1000); // Large size for statistical test
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.5f, 1000, random); // Large size for statistical test
         
         float[] input = new float[1000];
         for (int i = 0; i < 1000; i++) {
@@ -61,7 +66,8 @@ public class DropoutLayerTest {
     @Test
     void testForwardZeroDropout() {
         // With 0% dropout, all values should pass through scaled by 1
-        DropoutLayer layer = new DropoutLayer(0.0f, 5);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.0f, 5, random);
         
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
         Layer.LayerContext context = layer.forward(input, true);
@@ -72,7 +78,8 @@ public class DropoutLayerTest {
     @Test
     void testForwardTrainingMode() {
         // In training mode with dropout, some values should be zeroed and others scaled
-        DropoutLayer layer = new DropoutLayer(0.5f, 1000); // Large size for statistical test
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.5f, 1000, random); // Large size for statistical test
         
         float[] input = new float[1000];
         for (int i = 0; i < 1000; i++) {
@@ -106,7 +113,8 @@ public class DropoutLayerTest {
     @Test
     void testBackwardWithDropout() {
         // Gradients should follow the same mask as forward pass
-        DropoutLayer layer = new DropoutLayer(0.5f, 5);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.5f, 5, random);
         
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
         DropoutLayer.DropoutContext context = (DropoutLayer.DropoutContext) layer.forward(input, true);
@@ -128,7 +136,8 @@ public class DropoutLayerTest {
     @Test
     void testBackwardTrainingMode() {
         // In training mode, gradients should follow the same mask as forward pass
-        DropoutLayer layer = new DropoutLayer(0.5f, 5);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.5f, 5, random);
         
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
         DropoutLayer.DropoutContext context = (DropoutLayer.DropoutContext) layer.forward(input, true);
@@ -150,7 +159,8 @@ public class DropoutLayerTest {
     @Test
     void testExpectedValuePreservation() {
         // Verify that expected value is preserved with inverted dropout
-        DropoutLayer layer = new DropoutLayer(0.3f, 1000); // 30% dropout
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.3f, 1000, random); // 30% dropout
         
         // Use fixed values for more predictable test
         float[] input = new float[1000];
@@ -189,14 +199,16 @@ public class DropoutLayerTest {
         Layer.Spec spec = DropoutLayer.spec(0.5f);
         assertEquals(-1, spec.getOutputSize()); // Indicates output size matches input
         
-        Layer layer = spec.create(100);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(100, null, random);
         assertTrue(layer instanceof DropoutLayer);
         assertEquals(100, layer.getOutputSize());
     }
     
     @Test
     void testSerialization() throws Exception {
-        DropoutLayer original = new DropoutLayer(0.3f, 50);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer original = new DropoutLayer(0.3f, 50, random);
         
         // Serialize
         java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
@@ -207,7 +219,8 @@ public class DropoutLayerTest {
         byte[] data = baos.toByteArray();
         java.io.DataInputStream in = new java.io.DataInputStream(
             new java.io.ByteArrayInputStream(data));
-        DropoutLayer loaded = DropoutLayer.deserialize(in, 1);
+        FastRandom loadedRandom = new FastRandom(12345);
+        DropoutLayer loaded = DropoutLayer.deserialize(in, 1, loadedRandom);
         
         // Verify
         assertEquals(original.getDropoutRate(), loaded.getDropoutRate(), EPSILON);
@@ -216,7 +229,8 @@ public class DropoutLayerTest {
     
     @Test
     void testInputSizeMismatch() {
-        DropoutLayer layer = new DropoutLayer(0.5f, 5);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.5f, 5, random);
         float[] wrongSizeInput = {1.0f, 2.0f, 3.0f}; // Wrong size
         
         assertThrows(IllegalArgumentException.class, () -> layer.forward(wrongSizeInput, true));
@@ -225,7 +239,8 @@ public class DropoutLayerTest {
     @Test
     void testDropoutAlwaysActive() {
         // Test that dropout is always active (no training mode toggle)
-        DropoutLayer layer = new DropoutLayer(0.5f, 100);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer layer = new DropoutLayer(0.5f, 100, random);
         
         float[] input = new float[100];
         for (int i = 0; i < 100; i++) {
@@ -253,7 +268,8 @@ public class DropoutLayerTest {
         float[] rates = {0.1f, 0.2f, 0.3f, 0.5f, 0.7f, 0.9f};
         
         for (float rate : rates) {
-            DropoutLayer layer = new DropoutLayer(rate, 1000);
+            FastRandom random = new FastRandom(12345);
+            DropoutLayer layer = new DropoutLayer(rate, 1000, random);
             float[] input = new float[1000];
             for (int i = 0; i < 1000; i++) {
                 input[i] = 1.0f;

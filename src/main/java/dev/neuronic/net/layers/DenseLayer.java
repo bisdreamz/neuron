@@ -3,6 +3,7 @@ package dev.neuronic.net.layers;
 import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.activators.*;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.losses.CombinedLossActivation;
 import dev.neuronic.net.losses.Loss;
@@ -37,7 +38,7 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
     protected final ThreadLocal<float[]> accumulatedBiasGradients;
     protected final ThreadLocal<Boolean> accumulating;
 
-    public DenseLayer(Optimizer optimizer, Activator activator, int neurons, int inputs, WeightInitStrategy initStrategy) {
+    public DenseLayer(Optimizer optimizer, Activator activator, int neurons, int inputs, WeightInitStrategy initStrategy, FastRandom random) {
         this.optimizer = optimizer;
         this.activator = activator;
         this.weights = new float[inputs][neurons]; // Column-major layout
@@ -56,9 +57,9 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
 
         // Initialize weights and biases based on strategy
         switch (initStrategy) {
-            case XAVIER -> NetMath.weightInitXavier(weights, inputs, neurons);
-            case HE -> NetMath.weightInitHe(weights, inputs);
-            case HE_PLUS_UNIFORM_NOISE -> NetMath.weightInitHePlusUniformNoise(weights, inputs, 0.01f);
+            case XAVIER -> NetMath.weightInitXavier(weights, inputs, neurons, random);
+            case HE -> NetMath.weightInitHe(weights, inputs, random);
+            case HE_PLUS_UNIFORM_NOISE -> NetMath.weightInitHePlusUniformNoise(weights, inputs, 0.01f, random);
         }
         NetMath.biasInit(biases, 0.0f);
     }
@@ -512,13 +513,8 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         }
         
         @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
-        
-        @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
-            return new DenseLayer(effectiveOptimizer, activator, neurons, inputSize, initStrategy);
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new DenseLayer(effectiveOptimizer, activator, neurons, inputSize, initStrategy, random);
         }
     }
     
@@ -557,7 +553,7 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
     /**
      * Static method to deserialize a DenseLayer from stream.
      */
-    public static DenseLayer deserialize(DataInputStream in, int version) throws IOException {
+    public static DenseLayer deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read layer dimensions
         int neurons = in.readInt();
         int inputs = in.readInt();
@@ -582,10 +578,11 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         // Read optimizer
         Optimizer optimizer = readOptimizer(in, version);
         
-        // Create layer and set deserialized values
-        DenseLayer layer = new DenseLayer(optimizer, activator, neurons, inputs, WeightInitStrategy.XAVIER);
+        // Create layer with provided FastRandom
+        // Note: We'll overwrite the initialized weights with saved values below
+        DenseLayer layer = new DenseLayer(optimizer, activator, neurons, inputs, WeightInitStrategy.XAVIER, random);
         
-        // Copy weights and biases to the new layer
+        // Overwrite with saved weights and biases
         System.arraycopy(biases, 0, layer.biases, 0, neurons);
         for (int i = 0; i < inputs; i++) {
             System.arraycopy(weights[i], 0, layer.weights[i], 0, neurons);

@@ -1,7 +1,7 @@
 package dev.neuronic.net.math.ops;
 
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.Vectorization;
-import java.util.Random;
 
 /**
  * Xavier/Glorot uniform weight initialization - the gold standard for networks with sigmoid/tanh activations.
@@ -32,22 +32,21 @@ import java.util.Random;
 public final class WeightInitXavier {
     
     public interface Impl {
-        void compute(float[][] weights, int fanIn, int fanOut);
+        void compute(float[][] weights, int fanIn, int fanOut, FastRandom random);
     }
     
     private static final class ScalarImpl implements Impl {
         @Override
-        public void compute(float[][] weights, int fanIn, int fanOut) {
+        public void compute(float[][] weights, int fanIn, int fanOut, FastRandom random) {
             if (fanIn <= 0 || fanOut <= 0)
                 throw new IllegalArgumentException("fanIn and fanOut must be positive, got: " + fanIn + ", " + fanOut);
                 
             float limit = (float)Math.sqrt(6.0f / (fanIn + fanOut));
             float twoLimit = 2f * limit;
-            Random rnd = new Random();
             
             for (float[] row : weights) {
                 for (int i = 0; i < row.length; i++) {
-                    row[i] = (rnd.nextFloat() - 0.5f) * twoLimit;
+                    row[i] = (random.nextFloat() - 0.5f) * twoLimit;
                 }
             }
         }
@@ -71,21 +70,7 @@ public final class WeightInitXavier {
     
     private WeightInitXavier() {}
 
-    public static void compute(float[][] weights, int fanIn, int fanOut) {
-        IMPL.compute(weights, fanIn, fanOut);
-    }
-    
-    static void computeVectorized(float[][] weights, float limit) {
-        int fanSum = (int)(6.0f / (limit * limit));
-        int fanIn = fanSum / 2;
-        int fanOut = fanSum - fanIn;
-        IMPL.compute(weights, fanIn, fanOut);
-    }
-    
-    static void computeScalar(float[][] weights, float limit) {
-        int fanSum = (int)(6.0f / (limit * limit));
-        int fanIn = fanSum / 2;
-        int fanOut = fanSum - fanIn;
-        new ScalarImpl().compute(weights, fanIn, fanOut);
+    public static void compute(float[][] weights, int fanIn, int fanOut, FastRandom random) {
+        IMPL.compute(weights, fanIn, fanOut, random);
     }
 }

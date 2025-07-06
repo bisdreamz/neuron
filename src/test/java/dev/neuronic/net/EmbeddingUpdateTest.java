@@ -2,7 +2,9 @@ package dev.neuronic.net;
 
 import dev.neuronic.net.layers.Feature;
 import dev.neuronic.net.layers.Layer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
+import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.outputs.RegressionOutput;
 import dev.neuronic.net.simple.SimpleNet;
@@ -58,12 +60,7 @@ public class EmbeddingUpdateTest {
         }
 
         @Override
-        public Layer create(int inputSize) {
-            return this;
-        }
-
-        @Override
-        public Layer create(int inputSize, dev.neuronic.net.optimizers.Optimizer defaultOptimizer) {
+        public Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random) {
             return this;
         }
     }

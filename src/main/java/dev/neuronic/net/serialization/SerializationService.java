@@ -2,6 +2,7 @@ package dev.neuronic.net.serialization;
 
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.*;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.AdamOptimizer;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
@@ -53,9 +54,17 @@ public final class SerializationService {
         T deserialize(DataInputStream in, int version) throws IOException;
     }
     
+    /**
+     * Factory interface for creating layers that need FastRandom during deserialization.
+     */
+    @FunctionalInterface
+    public interface LayerDeserializationFactory {
+        Layer deserialize(DataInputStream in, int version, FastRandom random) throws IOException;
+    }
+    
     // Type registries - using concurrent maps for thread safety
     private static final Map<Integer, DeserializationFactory<Optimizer>> optimizerFactories = new ConcurrentHashMap<>();
-    private static final Map<Integer, DeserializationFactory<Layer>> layerFactories = new ConcurrentHashMap<>();
+    private static final Map<Integer, LayerDeserializationFactory> layerFactories = new ConcurrentHashMap<>();
     private static final Map<Class<?>, Integer> typeIdMapping = new ConcurrentHashMap<>();
     
     // Static initialization flag
@@ -108,48 +117,48 @@ public final class SerializationService {
         // Register output layers
         registerLayer(SerializationConstants.TYPE_SOFTMAX_CROSSENTROPY_OUTPUT,
             SoftmaxCrossEntropyOutput.class,
-            SoftmaxCrossEntropyOutput::deserialize);
+            (in, version, random) -> SoftmaxCrossEntropyOutput.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_LINEAR_REGRESSION_OUTPUT,
             LinearRegressionOutput.class,
-            LinearRegressionOutput::deserialize);
+            (in, version, random) -> LinearRegressionOutput.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_HUBER_REGRESSION_OUTPUT,
             HuberRegressionOutput.class,
-            HuberRegressionOutput::deserialize);
+            (in, version, random) -> HuberRegressionOutput.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_SIGMOID_BINARY_OUTPUT,
             SigmoidBinaryCrossEntropyOutput.class,
-            SigmoidBinaryCrossEntropyOutput::deserialize);
+            (in, version, random) -> SigmoidBinaryCrossEntropyOutput.deserialize(in, version, random));
             
         // Register input/hidden layers
         registerLayer(SerializationConstants.TYPE_DENSE_LAYER,
             DenseLayer.class,
-            DenseLayer::deserialize);
+            (in, version, random) -> DenseLayer.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_INPUT_EMBEDDING_LAYER,
             InputEmbeddingLayer.class,
-            InputEmbeddingLayer::deserialize);
+            (in, version, random) -> InputEmbeddingLayer.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_MIXED_FEATURE_INPUT_LAYER,
             MixedFeatureInputLayer.class,
-            MixedFeatureInputLayer::deserialize);
+            (in, version, random) -> MixedFeatureInputLayer.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_GRU_LAYER,
             GruLayer.class,
-            GruLayer::deserialize);
+            (in, version, random) -> GruLayer.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_INPUT_SEQUENCE_EMBEDDING_LAYER,
             InputSequenceEmbeddingLayer.class,
-            InputSequenceEmbeddingLayer::deserialize);
+            (in, version, random) -> InputSequenceEmbeddingLayer.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_DROPOUT_LAYER,
             DropoutLayer.class,
-            DropoutLayer::deserialize);
+            (in, version, random) -> DropoutLayer.deserialize(in, version, random));
             
         registerLayer(SerializationConstants.TYPE_LAYER_NORM_LAYER,
             LayerNormLayer.class,
-            LayerNormLayer::deserialize);
+            (in, version, random) -> LayerNormLayer.deserialize(in, version, random));
     }
     
     /**
@@ -165,7 +174,7 @@ public final class SerializationService {
      * Register a layer type with the service.
      */
     public static void registerLayer(int typeId, Class<? extends Layer> clazz,
-                                   DeserializationFactory<Layer> factory) {
+                                   LayerDeserializationFactory factory) {
         layerFactories.put(typeId, factory);
         typeIdMapping.put(clazz, typeId);
     }
@@ -198,19 +207,20 @@ public final class SerializationService {
      * @param in input stream
      * @param typeId layer type ID  
      * @param version serialization version
+     * @param random FastRandom instance from parent network
      * @return deserialized layer
      * @throws IOException if deserialization fails
      */
-    public static Layer deserializeLayer(DataInputStream in, int typeId, int version) throws IOException {
+    public static Layer deserializeLayer(DataInputStream in, int typeId, int version, FastRandom random) throws IOException {
         ensureInitialized();
         
-        DeserializationFactory<Layer> factory = layerFactories.get(typeId);
+        LayerDeserializationFactory factory = layerFactories.get(typeId);
         if (factory == null) {
             throw new IOException("Unknown layer type ID: " + typeId + 
                                 ". Available types: " + layerFactories.keySet());
         }
         
-        return factory.deserialize(in, version);
+        return factory.deserialize(in, version, random);
     }
     
     /**

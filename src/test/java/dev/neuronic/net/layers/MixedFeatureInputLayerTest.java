@@ -4,6 +4,7 @@ package dev.neuronic.net.layers;
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.*;
@@ -88,7 +89,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()        // input[2]: numerical feature
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test output size calculation: 16 + 4 + 1 = 21
         assertEquals(21, layer.getOutputSize());
@@ -109,7 +110,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()         // input[2]: numerical
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test forward pass
         float[] input = {42.0f, 1.0f, 3.14f}; // embedding_id=42, category=1, value=3.14
@@ -145,7 +146,7 @@ class MixedFeatureInputLayerTest {
             Feature.embedding(50, 4)
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.HE);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.HE, new FastRandom(12345));
         
         assertEquals(12, layer.getOutputSize()); // 3 * 4 = 12
         
@@ -164,7 +165,7 @@ class MixedFeatureInputLayerTest {
             Feature.oneHot(2)
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         assertEquals(10, layer.getOutputSize()); // 3 + 5 + 2 = 10
         
@@ -199,7 +200,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         assertEquals(3, layer.getOutputSize());
         
@@ -217,7 +218,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test wrong input length
         assertThrows(IllegalArgumentException.class, () -> {
@@ -264,7 +265,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(adamOptimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(adamOptimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Forward pass
         float[] input = {5.0f, 1.0f, 2.5f};
@@ -312,7 +313,7 @@ class MixedFeatureInputLayerTest {
             Feature.oneHot(2)
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test valid embedding access
         float[] embedding = layer.getEmbedding(0, 2);
@@ -353,7 +354,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()           // user_age (continuous)
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(adamOptimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(adamOptimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Expected output dimension: 64 + 32 + 4 + 8 + 1 = 109
         assertEquals(109, layer.getOutputSize());
@@ -395,7 +396,7 @@ class MixedFeatureInputLayerTest {
     @Test
     void testEmptyFeatureConfiguration() {
         assertThrows(IllegalArgumentException.class, () -> {
-            new MixedFeatureInputLayer(optimizer, new Feature[0], WeightInitStrategy.XAVIER);
+            new MixedFeatureInputLayer(optimizer, new Feature[0], WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
     }
 
@@ -425,7 +426,7 @@ class MixedFeatureInputLayerTest {
             Feature.autoNormalize("user_age")
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         String[] names = layer.getFeatureNames();
         assertEquals(5, names.length);
@@ -448,7 +449,7 @@ class MixedFeatureInputLayerTest {
         
         // Should throw exception because of mixed naming
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
-            new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+            new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         });
         
         assertTrue(ex.getMessage().contains("Feature naming must be all-or-nothing"));
@@ -464,7 +465,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         String[] names = layer.getFeatureNames();
         assertEquals(3, names.length);
@@ -551,7 +552,7 @@ class MixedFeatureInputLayerTest {
             Feature.passthrough()
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.HE);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.HE, new FastRandom(12345));
         
         // Multiple forward/backward passes
         for (int i = 0; i < 10; i++) {
@@ -578,7 +579,7 @@ class MixedFeatureInputLayerTest {
             Feature.oneHot(3)
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         int numThreads = 5;
         int iterations = 100;

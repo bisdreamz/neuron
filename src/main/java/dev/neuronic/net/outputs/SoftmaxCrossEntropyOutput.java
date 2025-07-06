@@ -7,6 +7,7 @@ import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.activators.SoftmaxActivator;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.serialization.SerializationConstants;
@@ -44,7 +45,7 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
     private final ThreadLocal<float[]> accumulatedBiasGradients;
     private final ThreadLocal<Boolean> accumulating;
     
-    public SoftmaxCrossEntropyOutput(Optimizer optimizer, int neurons, int inputs, WeightInitStrategy initStrategy) {
+    public SoftmaxCrossEntropyOutput(Optimizer optimizer, int neurons, int inputs, WeightInitStrategy initStrategy, FastRandom random) {
         this.optimizer = optimizer;
         this.weights = new float[inputs][neurons];
         this.biases = new float[neurons];
@@ -61,8 +62,8 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
         
         // Initialize weights and biases
         switch (initStrategy) {
-            case XAVIER -> NetMath.weightInitXavier(weights, inputs, neurons);
-            case HE -> NetMath.weightInitHe(weights, inputs);
+            case XAVIER -> NetMath.weightInitXavier(weights, inputs, neurons, random);
+            case HE -> NetMath.weightInitHe(weights, inputs, random);
         }
         NetMath.biasInit(biases, 0.0f);
     }
@@ -291,14 +292,10 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
-            return new SoftmaxCrossEntropyOutput(effectiveOptimizer, classes, inputSize, initStrategy);
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new SoftmaxCrossEntropyOutput(effectiveOptimizer, classes, inputSize, initStrategy, random);
         }
     }
     
@@ -336,7 +333,7 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
     /**
      * Static method to deserialize a SoftmaxCrossEntropyOutput from stream.
      */
-    public static SoftmaxCrossEntropyOutput deserialize(DataInputStream in, int version) throws IOException {
+    public static SoftmaxCrossEntropyOutput deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read layer dimensions
         int neurons = in.readInt();
         int inputs = in.readInt();
@@ -359,10 +356,10 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
         int optimizerTypeId = in.readInt();
         Optimizer optimizer = SerializationService.deserializeOptimizer(in, optimizerTypeId, version);
         
-        // Create layer and set deserialized values
-        SoftmaxCrossEntropyOutput layer = new SoftmaxCrossEntropyOutput(optimizer, neurons, inputs, WeightInitStrategy.XAVIER);
+        // Create layer with provided FastRandom
+        SoftmaxCrossEntropyOutput layer = new SoftmaxCrossEntropyOutput(optimizer, neurons, inputs, WeightInitStrategy.XAVIER, random);
         
-        // Copy weights and biases to the new layer
+        // Overwrite with saved weights and biases
         System.arraycopy(biases, 0, layer.biases, 0, neurons);
         for (int i = 0; i < inputs; i++) {
             System.arraycopy(weights[i], 0, layer.weights[i], 0, neurons);

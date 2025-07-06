@@ -2,6 +2,7 @@ package dev.neuronic.net;
 
 import dev.neuronic.net.common.Utils;
 import dev.neuronic.net.layers.Layer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.math.Parallelization;
 import dev.neuronic.net.serialization.ModelSerializer;
@@ -41,6 +42,8 @@ public class NeuralNet implements Serializable {
     private final ThreadLocal<Layer.LayerContext[]> contextBuffers;
     private final ExecutorService executor;
     private final float globalGradientClipNorm;
+    private final FastRandom random;
+    private final Long seed; // Store seed for serialization/reproducibility
 
     private final ThreadLocal<float[][]> singleInputBuffer = ThreadLocal.withInitial(() -> new float[1][]);
     private final ThreadLocal<float[][]> singleTargetBuffer = ThreadLocal.withInitial(() -> new float[1][]);
@@ -48,18 +51,28 @@ public class NeuralNet implements Serializable {
     private final ThreadLocal<GradientBuffers> gradientBuffers = new ThreadLocal<>();
 
     NeuralNet(Layer[] layers) {
-        this(layers, null, 10.0f);
+        this(layers, null, 10.0f, new FastRandom());
     }
 
     NeuralNet(Layer[] layers, ExecutorService executor) {
-        this(layers, executor, 10.0f);
+        this(layers, executor, 10.0f, new FastRandom());
     }
 
     NeuralNet(Layer[] layers, ExecutorService executor, float globalGradientClipNorm) {
+        this(layers, executor, globalGradientClipNorm, new FastRandom());
+    }
+    
+    NeuralNet(Layer[] layers, ExecutorService executor, float globalGradientClipNorm, FastRandom random) {
+        this(layers, executor, globalGradientClipNorm, random, null);
+    }
+    
+    NeuralNet(Layer[] layers, ExecutorService executor, float globalGradientClipNorm, FastRandom random, Long seed) {
         this.layers = Arrays.copyOf(layers, layers.length);
         this.contextBuffers = ThreadLocal.withInitial(() -> new Layer.LayerContext[layers.length]);
         this.executor = executor;
         this.globalGradientClipNorm = globalGradientClipNorm;
+        this.random = random;
+        this.seed = seed;
     }
 
     private Layer.LayerContext[] predictStack(float[] input, boolean isTraining) {
@@ -125,7 +138,7 @@ public class NeuralNet implements Serializable {
      * @return sampled class index
      */
     public float predictWithTemperature(float[] input, float temperature) {
-        return SamplingStrategies.sampleWithTemperature(predict(input), temperature);
+        return SamplingStrategies.sampleWithTemperature(predict(input), temperature, random);
     }
 
     /**
@@ -138,7 +151,7 @@ public class NeuralNet implements Serializable {
      * @return sampled class index
      */
     public float predictSampleTopK(float[] input, int k, float temperature) {
-        return SamplingStrategies.sampleTopK(predict(input), k, temperature);
+        return SamplingStrategies.sampleTopK(predict(input), k, temperature, random);
     }
 
     /**
@@ -151,7 +164,60 @@ public class NeuralNet implements Serializable {
      * @return sampled class index
      */
     public float predictSampleTopP(float[] input, float p, float temperature) {
-        return SamplingStrategies.sampleTopP(predict(input), p, temperature);
+        return SamplingStrategies.sampleTopP(predict(input), p, temperature, random);
+    }
+    
+    /**
+     * Get the random number generator used by this network.
+     * 
+     * <p>This FastRandom instance is shared across all layers in the network to ensure
+     * consistent randomness behavior. It is used for:
+     * <ul>
+     *   <li>Weight initialization during network construction</li>
+     *   <li>Dropout masks during training</li>
+     *   <li>Sampling strategies for language model generation</li>
+     *   <li>Any other stochastic operations within layers</li>
+     * </ul>
+     * 
+     * <p>When a seed is specified via {@link NeuralNetBuilder#withSeed(long)}, this
+     * random generator will produce deterministic sequences, enabling reproducible
+     * training runs and consistent model initialization.
+     * 
+     * @return the FastRandom instance used by this network
+     */
+    public FastRandom getRandom() {
+        return random;
+    }
+    
+    /**
+     * Get the seed used to initialize this network's random number generator.
+     * 
+     * <p>The seed determines the initial state of the random number generator,
+     * which affects:
+     * <ul>
+     *   <li>Initial weight values for all layers</li>
+     *   <li>Initial embedding values for embedding layers</li>
+     *   <li>Dropout patterns during training (though these vary per forward pass)</li>
+     *   <li>Any other random operations during network construction</li>
+     * </ul>
+     * 
+     * <p>This seed is preserved during serialization, ensuring that models can be
+     * saved and loaded while maintaining their exact state. This is particularly
+     * important for "always online training" scenarios where training may be
+     * interrupted and resumed.
+     * 
+     * <p>Note: Even with the same seed, training results may vary slightly due to:
+     * <ul>
+     *   <li>Floating-point rounding differences across platforms</li>
+     *   <li>Parallel execution with different thread scheduling</li>
+     *   <li>Different batch ordering in training data</li>
+     * </ul>
+     * 
+     * @return the seed used for initialization, or null if no seed was specified
+     *         (indicating random initialization based on system time)
+     */
+    public Long getSeed() {
+        return seed;
     }
 
     /**
@@ -416,8 +482,9 @@ public class NeuralNet implements Serializable {
     public void writeTo(DataOutputStream out, int version) throws IOException {
         // Write network metadata
         out.writeInt(layers.length);
-        // For backward compatibility, write -1 where argMaxCount used to be
-        out.writeInt(-1);
+        
+        // Write seed (null seeds are written as -1)
+        out.writeLong(seed != null ? seed : -1L);
 
         // Write each layer
         for (Layer layer : layers) {
@@ -439,21 +506,25 @@ public class NeuralNet implements Serializable {
     public static NeuralNet deserialize(DataInputStream in, int version) throws IOException {
         // Read network metadata
         int layerCount = in.readInt();
-        int argMaxCount = in.readInt(); // Read for backward compatibility, but ignore
+        
+        // Read seed
+        long seedValue = in.readLong();
+        Long seed = seedValue == -1L ? null : seedValue;
+        FastRandom random = seed != null ? new FastRandom(seed) : new FastRandom();
 
         // Read each layer
         Layer[] layers = new Layer[layerCount];
         for (int i = 0; i < layerCount; i++) {
             int typeId = in.readInt();
-            layers[i] = deserializeLayer(in, typeId, version);
+            layers[i] = deserializeLayer(in, typeId, version, random);
         }
 
-        return new NeuralNet(layers, null);
+        return new NeuralNet(layers, null, 10.0f, random, seed);
     }
 
-    private static Layer deserializeLayer(DataInputStream in, int typeId, int version) throws IOException {
+    private static Layer deserializeLayer(DataInputStream in, int typeId, int version, FastRandom random) throws IOException {
         // Use centralized serialization service - eliminates tight coupling
-        return SerializationService.deserializeLayer(in, typeId, version);
+        return SerializationService.deserializeLayer(in, typeId, version, random);
     }
 
     @Override

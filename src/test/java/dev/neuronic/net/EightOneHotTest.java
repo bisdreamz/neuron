@@ -23,7 +23,7 @@ public class EightOneHotTest {
     @Test
     public void testEightOneHotFeatures() {
         // User's exact configuration
-        AdamWOptimizer optimizer = new AdamWOptimizer(0.01f, 0.0001f);
+        AdamWOptimizer optimizer = new AdamWOptimizer(0.005f, 0.0001f);
         
         Feature[] features = {
             Feature.oneHot(200, "country"),      // ~200 countries
@@ -38,6 +38,7 @@ public class EightOneHotTest {
         
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(12345l)
             .layer(Layers.inputMixed(features))
             .layer(Layers.hiddenDenseLeakyRelu(128, 0.01f))
             .layer(Layers.hiddenDenseLeakyRelu(64, 0.01f))
@@ -46,7 +47,7 @@ public class EightOneHotTest {
         SimpleNetFloat model = SimpleNet.ofFloatRegression(net);
         
         // Generate synthetic data
-        Random rand = new Random(42);
+        Random rand = new Random(246810l);
         int numSamples = 1000;
         Map<String, Object>[] inputs = new Map[numSamples];
         float[] targets = new float[numSamples];
@@ -130,7 +131,7 @@ public class EightOneHotTest {
     public void testConcurrentTrainingWithOneHot() throws Exception {
         System.out.println("\n=== CONCURRENT TRAINING TEST ===");
         
-        AdamWOptimizer optimizer = new AdamWOptimizer(0.01f, 0.0001f);
+        AdamWOptimizer optimizer = new AdamWOptimizer(0.005f, 0.0001f);
         
         Feature[] features = {
             Feature.oneHot(100, "feature1"),
@@ -141,6 +142,7 @@ public class EightOneHotTest {
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
             .layer(Layers.inputMixed(features))
+            .withSeed(12345L)
             .layer(Layers.hiddenDenseLeakyRelu(32, 0.01f))
             .output(Layers.outputLinearRegression(1));
             
@@ -151,7 +153,7 @@ public class EightOneHotTest {
         Map<String, Object>[] inputs = new Map[numSamples];
         float[] targets = new float[numSamples];
         
-        Random rand = new Random(42);
+        Random rand = new Random(246810L);
         for (int i = 0; i < numSamples; i++) {
             inputs[i] = new HashMap<>();
             inputs[i].put("feature1", i % 100);

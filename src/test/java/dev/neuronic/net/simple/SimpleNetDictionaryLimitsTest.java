@@ -20,6 +20,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(42L)
             .input(2)
             .layer(Layers.inputMixed(optimizer,
                 Feature.embedding(5, 8, "item_id"),  // Max 5 unique values
@@ -52,6 +53,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(42L)
             .input(2)
             .layer(Layers.inputMixed(optimizer,
                 Feature.oneHot(3, "category"),  // Max 3 categories
@@ -81,6 +83,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(42L)
             .input(2)
             .layer(Layers.inputMixed(optimizer,
                 Feature.embeddingLRU(3, 8, "user_id"),  // LRU with max 3
@@ -115,6 +118,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(42L)
             .input(3)
             .layer(Layers.inputMixed(optimizer,
                 Feature.embeddingLRU(100, 16, "user_id"),    // LRU - won't throw
@@ -165,6 +169,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(12345L)  // Use fixed seed for deterministic test
             .input(2)
             .layer(Layers.inputMixed(optimizer,
                 Feature.oneHotLRU(5, "status"),  // LRU one-hot with max 5
@@ -199,6 +204,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(42L)
             .input(2)
             .layer(Layers.inputMixed(optimizer,
                 Feature.hashedEmbedding(10000, 16, "domain"),  // Hashed - no dictionary
@@ -224,6 +230,7 @@ class SimpleNetDictionaryLimitsTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         NeuralNet net = NeuralNet.newBuilder()
             .setDefaultOptimizer(optimizer)
+            .withSeed(42L)
             .input(1)
             .layer(Layers.inputMixed(optimizer,
                 Feature.embedding(2, 4, "tiny_vocab")

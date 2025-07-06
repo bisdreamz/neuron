@@ -1,5 +1,6 @@
 package dev.neuronic.net.layers;
 
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.serialization.SerializationConstants;
@@ -7,8 +8,6 @@ import dev.neuronic.net.serialization.SerializationConstants;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Dropout layer for regularization during training.
@@ -50,6 +49,7 @@ public class DropoutLayer implements Layer, Serializable {
     private final float keepProbability;  // 1 - dropoutRate (cached for efficiency)
     private final float scale;            // 1 / keepProbability (for inverted dropout)
     private final int fixedSize;          // Fixed size if >= 0, dynamic if -1
+    private final FastRandom random;      // Random number generator from parent network
     
     // Thread-local buffers that grow as needed
     private final ThreadLocal<BufferContainer> buffers = ThreadLocal.withInitial(BufferContainer::new);
@@ -75,9 +75,10 @@ public class DropoutLayer implements Layer, Serializable {
      * Create a dropout layer with dynamic size.
      * 
      * @param dropoutRate probability of dropping each neuron (0.0 to 1.0)
+     * @param random FastRandom instance from parent network
      */
-    public DropoutLayer(float dropoutRate) {
-        this(dropoutRate, -1); // -1 indicates dynamic size
+    public DropoutLayer(float dropoutRate, FastRandom random) {
+        this(dropoutRate, -1, random); // -1 indicates dynamic size
     }
     
     /**
@@ -85,8 +86,9 @@ public class DropoutLayer implements Layer, Serializable {
      * 
      * @param dropoutRate probability of dropping each neuron (0.0 to 1.0)
      * @param size fixed input/output size
+     * @param random FastRandom instance from parent network
      */
-    public DropoutLayer(float dropoutRate, int size) {
+    public DropoutLayer(float dropoutRate, int size, FastRandom random) {
         if (dropoutRate < 0.0f || dropoutRate >= 1.0f) {
             throw new IllegalArgumentException("Dropout rate must be in [0, 1): " + dropoutRate);
         }
@@ -100,6 +102,7 @@ public class DropoutLayer implements Layer, Serializable {
         this.keepProbability = 1.0f - dropoutRate;
         this.scale = (dropoutRate == 0.0f) ? 1.0f : 1.0f / keepProbability;
         this.fixedSize = size;
+        this.random = random;
     }
     
     
@@ -121,8 +124,6 @@ public class DropoutLayer implements Layer, Serializable {
         container.ensureCapacity(size);
 
         // Training mode: apply dropout
-        Random random = ThreadLocalRandom.current();
-
         // Generate dropout mask and apply with inverted dropout scaling using ThreadLocal buffers
         for (int i = 0; i < size; i++) {
             if (random.nextFloat() < keepProbability) {
@@ -202,11 +203,12 @@ public class DropoutLayer implements Layer, Serializable {
     /**
      * Deserialize a DropoutLayer from stream.
      */
-    public static DropoutLayer deserialize(DataInputStream in, int version) throws IOException {
+    public static DropoutLayer deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         float dropoutRate = in.readFloat();
         int fixedSize = in.readInt();
         
-        return new DropoutLayer(dropoutRate, fixedSize);
+        // Create with provided FastRandom for consistency
+        return new DropoutLayer(dropoutRate, fixedSize, random);
     }
     
     @Override
@@ -246,14 +248,13 @@ public class DropoutLayer implements Layer, Serializable {
             return inputSize; // Dropout preserves input size
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return new DropoutLayer(dropoutRate, inputSize);
+        
+        public Layer create(int inputSize, Optimizer defaultOptimizer) {
+            throw new UnsupportedOperationException("Use create(inputSize, defaultOptimizer, random) instead");
         }
         
-        @Override
-        public Layer create(int inputSize, Optimizer defaultOptimizer) {
-            return create(inputSize); // Dropout doesn't use optimizer
+        public Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random) {
+            return new DropoutLayer(dropoutRate, inputSize, random);
         }
     }
 }

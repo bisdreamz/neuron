@@ -7,6 +7,7 @@ import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.outputs.SoftmaxCrossEntropyOutput;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.serialization.SerializationConstants;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -94,7 +95,7 @@ class EmbeddingLanguageModelTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         
         // Create embedding layer separately to test different sequence lengths
-        InputEmbeddingLayer embeddingLayer = new InputEmbeddingLayer(optimizer, 10, 5, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer embeddingLayer = new InputEmbeddingLayer(optimizer, 10, 5, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test different sequence lengths
         for (int seqLen = 1; seqLen <= 10; seqLen++) {
@@ -113,7 +114,7 @@ class EmbeddingLanguageModelTest {
     void testEmbeddingLayerInSerialization() {
         // Test that embedding layers work with our serialization system
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 100, 64, WeightInitStrategy.XAVIER);
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, 100, 64, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Should have correct type ID for serialization
         assertEquals(SerializationConstants.TYPE_INPUT_EMBEDDING_LAYER,
@@ -130,7 +131,8 @@ class EmbeddingLanguageModelTest {
         
         // Test layer created through Layers utility
         Layer.Spec spec = Layers.inputEmbedding(50000, 512, optimizer);
-        Layer layer = spec.create(999); // Input size ignored for embeddings
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(999, optimizer, random); // Input size ignored for embeddings
         
         assertTrue(layer instanceof InputEmbeddingLayer, "Should create InputEmbeddingLayer");
         

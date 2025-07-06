@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.optimizers.SgdOptimizer;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ExecutorService;
@@ -18,7 +19,7 @@ class GruParallelTest {
     void testGruParallelForward() throws InterruptedException {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         // Use large hidden size to trigger parallel execution
-        GruLayer gru = new GruLayer(optimizer, 128, 64, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 128, 64, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Create test input
         float[] input = new float[64 * 3]; // 3 timesteps
@@ -47,7 +48,7 @@ class GruParallelTest {
     void testGruParallelBackward() throws InterruptedException {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         // Use large hidden size to trigger parallel execution  
-        GruLayer gru = new GruLayer(optimizer, 128, 64, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 128, 64, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Create test input
         float[] input = new float[64 * 2]; // 2 timesteps
@@ -97,7 +98,7 @@ class GruParallelTest {
     void testGruSmallSizeFallback() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         // Use small hidden size - should fall back to sequential
-        GruLayer gru = new GruLayer(optimizer, 32, 16, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 32, 16, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         float[] input = new float[16 * 2]; // 2 timesteps
         for (int i = 0; i < input.length; i++) {

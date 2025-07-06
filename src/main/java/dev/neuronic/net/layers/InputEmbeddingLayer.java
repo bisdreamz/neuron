@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.Shape;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.SgdOptimizer;
@@ -84,7 +85,7 @@ public class InputEmbeddingLayer implements Layer, Serializable {
     private final ThreadLocal<float[]> outputBuffers;
     private final ThreadLocal<float[][]> embeddingGradientBuffers;
     
-    public InputEmbeddingLayer(Optimizer optimizer, int vocabSize, int embeddingDim, WeightInitStrategy initStrategy) {
+    public InputEmbeddingLayer(Optimizer optimizer, int vocabSize, int embeddingDim, WeightInitStrategy initStrategy, FastRandom random) {
         if (vocabSize <= 0)
             throw new IllegalArgumentException("Vocab size must be positive: " + vocabSize);
         if (embeddingDim <= 0)
@@ -98,8 +99,8 @@ public class InputEmbeddingLayer implements Layer, Serializable {
         this.embeddingGradientBuffers = ThreadLocal.withInitial(() -> new float[vocabSize][embeddingDim]);
         
         switch (initStrategy) {
-            case XAVIER -> NetMath.weightInitXavier(embeddings, embeddingDim, embeddingDim);
-            case HE -> NetMath.weightInitHe(embeddings, embeddingDim);
+            case XAVIER -> NetMath.weightInitXavier(embeddings, embeddingDim, embeddingDim, random);
+            case HE -> NetMath.weightInitHe(embeddings, embeddingDim, random);
         }
     }
     
@@ -246,15 +247,11 @@ public class InputEmbeddingLayer implements Layer, Serializable {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
             // Input size is ignored for embedding layers (determined by sequence length)
-            return new InputEmbeddingLayer(effectiveOptimizer, vocabSize, embeddingDim, initStrategy);
+            return new InputEmbeddingLayer(effectiveOptimizer, vocabSize, embeddingDim, initStrategy, random);
         }
         
         @Override
@@ -318,7 +315,7 @@ public class InputEmbeddingLayer implements Layer, Serializable {
     /**
      * Static method to deserialize an InputEmbeddingLayer from stream.
      */
-    public static InputEmbeddingLayer deserialize(DataInputStream in, int version) throws IOException {
+    public static InputEmbeddingLayer deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read layer dimensions
         int vocabSize = in.readInt();
         int embeddingDim = in.readInt();
@@ -334,10 +331,10 @@ public class InputEmbeddingLayer implements Layer, Serializable {
         // Read optimizer
         Optimizer optimizer = readOptimizer(in, version);
         
-        // Create layer and set deserialized values
-        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, vocabSize, embeddingDim, WeightInitStrategy.XAVIER);
+        // Create layer with provided FastRandom
+        InputEmbeddingLayer layer = new InputEmbeddingLayer(optimizer, vocabSize, embeddingDim, WeightInitStrategy.XAVIER, random);
         
-        
+        // Overwrite with saved embeddings
         for (int i = 0; i < vocabSize; i++) {
             System.arraycopy(embeddings[i], 0, layer.embeddings[i], 0, embeddingDim);
         }

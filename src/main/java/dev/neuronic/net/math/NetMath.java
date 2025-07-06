@@ -212,24 +212,24 @@ public final class NetMath {
      * Initialize weights using Xavier/Glorot initialization.
      * Good for sigmoid and tanh activation functions.
      */
-    public static void weightInitXavier(float[][] weights, int fanIn, int fanOut) {
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+    public static void weightInitXavier(float[][] weights, int fanIn, int fanOut, FastRandom random) {
+        WeightInitXavier.compute(weights, fanIn, fanOut, random);
     }
     
     /**
      * Initialize weights using He initialization.
      * Good for ReLU and variants.
      */
-    public static void weightInitHe(float[][] weights, int fanIn) {
-        WeightInitHe.compute(weights, fanIn);
+    public static void weightInitHe(float[][] weights, int fanIn, FastRandom random) {
+        WeightInitHe.compute(weights, fanIn, random);
     }
 
     /**
      * Initialize weights using He initialization plus uniform noise.
      * Good for ReLU and variants.
      */
-    public static void weightInitHePlusUniformNoise(float[][] weights, int fanIn, float noiseLevel) {
-        WeightInitHe.compute(weights, fanIn, noiseLevel);
+    public static void weightInitHePlusUniformNoise(float[][] weights, int fanIn, float noiseLevel, FastRandom random) {
+        WeightInitHe.compute(weights, fanIn, noiseLevel, random);
     }
     
     /**
@@ -240,9 +240,9 @@ public final class NetMath {
      * @param min minimum value (inclusive)
      * @param max maximum value (exclusive)
      */
-    public static void embeddingInitUniform(float[][] embeddings, float min, float max) {
+    public static void embeddingInitUniform(float[][] embeddings, float min, float max, FastRandom random) {
         for (float[] row : embeddings) {
-            FastRandom.fillUniform(row, min, max);
+            random.fillUniform(row, min, max);
         }
     }
     

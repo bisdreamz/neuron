@@ -3,6 +3,8 @@ package dev.neuronic.net;
 import dev.neuronic.net.activators.Activator;
 import dev.neuronic.net.layers.DenseLayer;
 import dev.neuronic.net.layers.Layer;
+import dev.neuronic.net.math.FastRandom;
+import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import org.junit.jupiter.api.Test;
 
@@ -104,10 +106,10 @@ class ExecutorSupportTest {
             // Create a custom layer spec that uses our activator
             var customLayerSpec = new Layer.Spec() {
                 @Override
-                public Layer create(int inputSize) {
+                public Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random) {
                     return new DenseLayer(
                         optimizer, customActivator, 4, inputSize, 
-                        WeightInitStrategy.XAVIER
+                        WeightInitStrategy.XAVIER, random
                     );
                 }
                 

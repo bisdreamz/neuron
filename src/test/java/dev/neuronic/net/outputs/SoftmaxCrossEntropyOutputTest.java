@@ -2,6 +2,7 @@ package dev.neuronic.net.outputs;
 
 import dev.neuronic.net.Layers;
 import dev.neuronic.net.layers.Layer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +17,8 @@ class SoftmaxCrossEntropyOutputTest {
         
         assertEquals(10, spec.getOutputSize());
         
-        Layer layer = spec.create(5);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(5, optimizer, random);
         assertInstanceOf(SoftmaxCrossEntropyOutput.class, layer);
     }
 
@@ -24,7 +26,8 @@ class SoftmaxCrossEntropyOutputTest {
     void testForwardSoftmaxNormalization() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec spec = Layers.outputSoftmaxCrossEntropy(3, optimizer);
-        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
+        FastRandom random = new FastRandom(12345);
+        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3, optimizer, random);
         
         float[] input = {1.0f, 2.0f, 3.0f};
         Layer.LayerContext context = layer.forward(input, false);
@@ -42,7 +45,8 @@ class SoftmaxCrossEntropyOutputTest {
     void testForwardLargeInputsNumericalStability() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec spec = Layers.outputSoftmaxCrossEntropy(3, optimizer);
-        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
+        FastRandom random = new FastRandom(12345);
+        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3, optimizer, random);
         
         // Test with large inputs that could cause overflow
         float[] input = {100.0f, 101.0f, 102.0f};
@@ -62,7 +66,8 @@ class SoftmaxCrossEntropyOutputTest {
     void testBackwardGradientComputation() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec spec = Layers.outputSoftmaxCrossEntropy(3, optimizer);
-        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
+        FastRandom random = new FastRandom(12345);
+        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3, optimizer, random);
         
         float[] input = {1.0f, 2.0f, 3.0f};
         Layer.LayerContext context = layer.forward(input, false);
@@ -95,7 +100,8 @@ class SoftmaxCrossEntropyOutputTest {
     void testBackwardPerfectPrediction() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec spec = Layers.outputSoftmaxCrossEntropy(3, optimizer);
-        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
+        FastRandom random = new FastRandom(12345);
+        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3, optimizer, random);
         
         // Create input that will result in near-perfect prediction for class 0
         float[] input = {10.0f, -10.0f, -10.0f};
@@ -120,7 +126,8 @@ class SoftmaxCrossEntropyOutputTest {
     void testBackwardGradientFormula() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec spec = Layers.outputSoftmaxCrossEntropy(3, optimizer);
-        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
+        FastRandom random = new FastRandom(12345);
+        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3, optimizer, random);
         
         // Use any input - the gradient formula should hold regardless
         float[] input = {1.0f, 2.0f, 3.0f};
@@ -180,7 +187,8 @@ class SoftmaxCrossEntropyOutputTest {
     void testIsOutputLayer() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec spec = Layers.outputSoftmaxCrossEntropy(3, optimizer);
-        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
+        FastRandom random = new FastRandom(12345);
+        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3, optimizer, random);
         
         assertInstanceOf(SoftmaxCrossEntropyOutput.class, layer);
         assertNotNull(layer, "Should create a valid output layer");
@@ -190,7 +198,8 @@ class SoftmaxCrossEntropyOutputTest {
     void testWeightInitialization() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec spec = Layers.outputSoftmaxCrossEntropy(3, optimizer);
-        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3);
+        FastRandom random = new FastRandom(12345);
+        SoftmaxCrossEntropyOutput layer = (SoftmaxCrossEntropyOutput) spec.create(3, optimizer, random);
         
         // Weights should be initialized (not all zeros)
         boolean hasNonZeroWeight = false;

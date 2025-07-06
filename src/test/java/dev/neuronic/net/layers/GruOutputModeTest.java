@@ -6,6 +6,7 @@ import dev.neuronic.net.Shape;
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.layers.Layer.LayerContext;
 import dev.neuronic.net.optimizers.SgdOptimizer;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -82,7 +83,7 @@ public class GruOutputModeTest {
         
         // Test ALL_TIMESTEPS mode
         GruLayer gruAll = new GruLayer(optimizer, hiddenSize, inputSize, 
-                                      WeightInitStrategy.XAVIER, GruLayer.OutputMode.ALL_TIMESTEPS);
+                                      WeightInitStrategy.XAVIER, GruLayer.OutputMode.ALL_TIMESTEPS, new FastRandom(12345));
         
         float[] input = new float[seqLen * inputSize];
         LayerContext contextAll = gruAll.forward(input, false);
@@ -92,7 +93,7 @@ public class GruOutputModeTest {
         
         // Test LAST_TIMESTEP mode
         GruLayer gruLast = new GruLayer(optimizer, hiddenSize, inputSize, 
-                                       WeightInitStrategy.XAVIER, GruLayer.OutputMode.LAST_TIMESTEP);
+                                       WeightInitStrategy.XAVIER, GruLayer.OutputMode.LAST_TIMESTEP, new FastRandom(12345));
         
         LayerContext contextLast = gruLast.forward(input, false);
         
@@ -106,7 +107,8 @@ public class GruOutputModeTest {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
         Layer.Spec oldSpec = GruLayer.spec(32, optimizer, WeightInitStrategy.XAVIER);
         
-        GruLayer oldGru = (GruLayer) oldSpec.create(16);
+        FastRandom random = new FastRandom(12345);
+        GruLayer oldGru = (GruLayer) oldSpec.create(16, optimizer, random);
         
         // Should behave like ALL_TIMESTEPS by default
         float[] input = new float[5 * 16]; // 5 timesteps, 16 input size

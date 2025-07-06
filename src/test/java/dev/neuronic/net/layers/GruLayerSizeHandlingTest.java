@@ -4,6 +4,7 @@ import dev.neuronic.net.*;
 import dev.neuronic.net.Layers;
 import dev.neuronic.net.NeuralNet;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
@@ -63,7 +64,8 @@ public class GruLayerSizeHandlingTest {
             
             // Create GRU spec and layer with expected input dimension
             Layer.Spec gruSpec = GruLayer.specAll(128, new SgdOptimizer(0.01f), WeightInitStrategy.XAVIER, embDim);
-            Layer gruLayer = gruSpec.create(flattenedSize);
+            FastRandom random = new FastRandom(12345);
+            Layer gruLayer = gruSpec.create(flattenedSize, new SgdOptimizer(0.01f), random);
             
             // Forward pass with flattened sequence
             float[] input = new float[flattenedSize];
@@ -78,7 +80,8 @@ public class GruLayerSizeHandlingTest {
     @Test
     public void testDropoutHandlesDynamicSizes() {
         // Test dropout with different input sizes
-        DropoutLayer dropout = new DropoutLayer(0.5f);
+        FastRandom random = new FastRandom(12345);
+        DropoutLayer dropout = new DropoutLayer(0.5f, random);
         
         // Should handle any size
         int[] sizes = {128, 256, 2560, 20 * 128};

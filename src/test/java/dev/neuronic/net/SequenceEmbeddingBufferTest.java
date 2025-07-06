@@ -2,6 +2,7 @@ package dev.neuronic.net;
 
 import dev.neuronic.net.layers.InputSequenceEmbeddingLayer;
 import dev.neuronic.net.layers.Layer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import org.junit.jupiter.api.Test;
 
@@ -18,12 +19,14 @@ public class SequenceEmbeddingBufferTest {
     @Test
     public void testSequenceEmbeddingProducesDifferentOutputs() {
         // Create a standalone InputSequenceEmbeddingLayer
+        FastRandom random = new FastRandom(12345);
         InputSequenceEmbeddingLayer embeddingLayer = new InputSequenceEmbeddingLayer(
             new AdamWOptimizer(0.01f, 0.0001f),
             3, // sequence length
             10, // max vocab size  
             8, // embedding dimension
-            WeightInitStrategy.HE
+            WeightInitStrategy.HE,
+            random
         );
         
         // First, populate vocabulary by getting token IDs
@@ -77,7 +80,7 @@ public class SequenceEmbeddingBufferTest {
         // Test that LayerContext objects maintain their integrity when stored
         InputSequenceEmbeddingLayer embeddingLayer = new InputSequenceEmbeddingLayer(
             new AdamWOptimizer(0.01f, 0.0001f),
-            3, 10, 8, WeightInitStrategy.HE
+            3, 10, 8, WeightInitStrategy.HE, new FastRandom(12345)
         );
         
         int tokenA = embeddingLayer.getTokenId("a");

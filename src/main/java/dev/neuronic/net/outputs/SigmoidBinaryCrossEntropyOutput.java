@@ -4,6 +4,7 @@ import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.layers.BaseLayerSpec;
 import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.optimizers.Optimizer;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.serialization.SerializationConstants;
@@ -36,7 +37,7 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable, Reg
     // Instance buffer pools for different array sizes
     private final PooledFloatArray inputBufferPool;       // For input-sized arrays
     
-    public SigmoidBinaryCrossEntropyOutput(Optimizer optimizer, int inputs) {
+    public SigmoidBinaryCrossEntropyOutput(Optimizer optimizer, int inputs, FastRandom random) {
         this.optimizer = optimizer;
         this.weights = new float[inputs][1]; // Single output
         this.biases = new float[1];
@@ -45,7 +46,7 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable, Reg
         this.inputBufferPool = new PooledFloatArray(inputs);
         
         // Xavier initialization for sigmoid
-        NetMath.weightInitXavier(weights, inputs, 1);
+        NetMath.weightInitXavier(weights, inputs, 1, random);
         NetMath.biasInit(biases, 0.0f);
     }
     
@@ -142,14 +143,10 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable, Reg
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
-            return new SigmoidBinaryCrossEntropyOutput(effectiveOptimizer, inputSize);
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new SigmoidBinaryCrossEntropyOutput(effectiveOptimizer, inputSize, random);
         }
         
     }
@@ -184,7 +181,7 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable, Reg
     /**
      * Static method to deserialize a SigmoidBinaryCrossEntropyOutput from stream.
      */
-    public static SigmoidBinaryCrossEntropyOutput deserialize(DataInputStream in, int version) throws IOException {
+    public static SigmoidBinaryCrossEntropyOutput deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read layer dimensions
         int outputs = in.readInt(); // Should be 1 for binary classification
         int inputs = in.readInt();
@@ -202,10 +199,10 @@ public class SigmoidBinaryCrossEntropyOutput implements Layer, Serializable, Reg
         int optimizerTypeId = in.readInt();
         Optimizer optimizer = SerializationService.deserializeOptimizer(in, optimizerTypeId, version);
         
-        // Create layer and set weights
-        SigmoidBinaryCrossEntropyOutput layer = new SigmoidBinaryCrossEntropyOutput(optimizer, inputs);
+        // Create layer with provided FastRandom
+        SigmoidBinaryCrossEntropyOutput layer = new SigmoidBinaryCrossEntropyOutput(optimizer, inputs, random);
         
-        // Copy weights and bias
+        // Overwrite with saved weights and bias
         for (int i = 0; i < inputs; i++) {
             layer.weights[i][0] = weights[i][0];
         }

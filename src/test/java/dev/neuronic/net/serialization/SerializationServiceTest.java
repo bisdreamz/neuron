@@ -3,6 +3,7 @@ package dev.neuronic.net.serialization;
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import dev.neuronic.net.optimizers.SgdOptimizer;
 import dev.neuronic.net.optimizers.Optimizer;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 
@@ -89,7 +90,7 @@ class SerializationServiceTest {
         DataInputStream dataIn = new DataInputStream(in);
         
         IOException exception = assertThrows(IOException.class, 
-            () -> SerializationService.deserializeLayer(dataIn, 999, 1));
+            () -> SerializationService.deserializeLayer(dataIn, 999, 1, new FastRandom(12345)));
         
         assertTrue(exception.getMessage().contains("Unknown layer type ID: 999"));
         assertTrue(exception.getMessage().contains("Available types:"));

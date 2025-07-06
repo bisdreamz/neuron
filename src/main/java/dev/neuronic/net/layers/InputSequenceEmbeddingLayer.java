@@ -1,6 +1,7 @@
 package dev.neuronic.net.layers;
 
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.AdamOptimizer;
@@ -90,7 +91,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
     private final float[] emptyBiasGradients = new float[0];  // Reuse same instance
     
     public InputSequenceEmbeddingLayer(Optimizer optimizer, int sequenceLength, int maxVocabSize, 
-                                      int embeddingDim, WeightInitStrategy initStrategy) {
+                                      int embeddingDim, WeightInitStrategy initStrategy, FastRandom random) {
         if (sequenceLength <= 0)
             throw new IllegalArgumentException("Sequence length must be positive: " + sequenceLength);
         if (maxVocabSize <= 0)
@@ -99,7 +100,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
             throw new IllegalArgumentException("Embedding dim must be positive: " + embeddingDim);
         
         this.optimizer = optimizer;
-        this.embeddingOptimizer = embeddingOptimizer != null ? embeddingOptimizer : optimizer.forEmbeddings();
+        this.embeddingOptimizer = optimizer.forEmbeddings();
         this.sequenceLength = sequenceLength;
         this.maxVocabSize = maxVocabSize;
         this.embeddingDim = embeddingDim;
@@ -114,7 +115,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
         
         // Initialize embeddings with uniform distribution for better learning
         // Embeddings need different initialization than dense layers
-        NetMath.embeddingInitUniform(embeddings, -0.05f, 0.05f);
+        NetMath.embeddingInitUniform(embeddings, -0.05f, 0.05f, random);
     }
     
     @Override
@@ -410,16 +411,12 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
             // Input size is the sequence length (ignored, we use our configured length)
             return new InputSequenceEmbeddingLayer(effectiveOptimizer, sequenceLength, 
-                                                  maxVocabSize, embeddingDim, initStrategy);
+                                                  maxVocabSize, embeddingDim, initStrategy, random);
         }
     }
     
@@ -467,7 +464,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
     /**
      * Static method to deserialize an InputSequenceEmbeddingLayer from stream.
      */
-    public static InputSequenceEmbeddingLayer deserialize(DataInputStream in, int version) throws IOException {
+    public static InputSequenceEmbeddingLayer deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read layer configuration
         int sequenceLength = in.readInt();
         int maxVocabSize = in.readInt();
@@ -501,9 +498,9 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
             embeddingOptimizer = readOptimizer(in, version);
         }
         
-        // Create layer and restore state
+        // Create layer with provided FastRandom and restore state
         InputSequenceEmbeddingLayer layer = new InputSequenceEmbeddingLayer(
-            optimizer, sequenceLength, maxVocabSize, embeddingDim, WeightInitStrategy.XAVIER);
+            optimizer, sequenceLength, maxVocabSize, embeddingDim, WeightInitStrategy.XAVIER, random);
         
         // Override embedding optimizer if different from deserialization
         if (hasSeparateEmbeddingOptimizer) {

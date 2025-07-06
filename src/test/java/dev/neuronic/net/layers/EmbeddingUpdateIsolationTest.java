@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.optimizers.AdamWOptimizer;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 
@@ -22,7 +23,8 @@ public class EmbeddingUpdateIsolationTest {
             Feature.embedding(3, 4, "item") // 3 items, 4-dim embeddings
         };
         
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.HE);
+        FastRandom random = new FastRandom(12345);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(optimizer, features, WeightInitStrategy.HE, random);
         
         // Get initial embeddings
         float[] embed0_initial = layer.getEmbedding(0, 0).clone();

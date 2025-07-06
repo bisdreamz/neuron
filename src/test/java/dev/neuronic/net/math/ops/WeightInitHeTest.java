@@ -1,5 +1,6 @@
 package dev.neuronic.net.math.ops;
 
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -11,8 +12,9 @@ class WeightInitHeTest {
     void testComputeBasic() {
         float[][] weights = new float[3][4];
         int fanIn = 3;
+        FastRandom random = new FastRandom(12345);
         
-        WeightInitHe.compute(weights, fanIn);
+        WeightInitHe.compute(weights, fanIn, random);
         
         // Verify all weights are initialized (not zero)
         boolean hasNonZero = false;
@@ -33,7 +35,8 @@ class WeightInitHeTest {
         float[][] weights = new float[1][4];
         int fanIn = 10;
         
-        WeightInitHe.compute(weights, fanIn);
+        FastRandom random = new FastRandom(12345);
+        WeightInitHe.compute(weights, fanIn, random);
         
         // Verify all elements are initialized
         boolean hasNonZero = false;
@@ -52,7 +55,8 @@ class WeightInitHeTest {
         float[][] weights = new float[1][64];
         int fanIn = 10;
         
-        WeightInitHe.compute(weights, fanIn);
+        FastRandom random = new FastRandom(12345);
+        WeightInitHe.compute(weights, fanIn, random);
         
         // Verify all elements are initialized
         boolean hasNonZero = false;
@@ -74,11 +78,13 @@ class WeightInitHeTest {
         
         // Small array - will use scalar path
         float[][] smallWeights = new float[100][4];
-        WeightInitHe.compute(smallWeights, fanIn);
+        FastRandom random1 = new FastRandom(12345);
+        WeightInitHe.compute(smallWeights, fanIn, random1);
         
         // Large array - will use vectorized path
         float[][] largeWeights = new float[100][64];
-        WeightInitHe.compute(largeWeights, fanIn);
+        FastRandom random2 = new FastRandom(12345);
+        WeightInitHe.compute(largeWeights, fanIn, random2);
         
         // Calculate statistics for both
         double smallMean = calculateMean2D(smallWeights);
@@ -103,7 +109,8 @@ class WeightInitHeTest {
         float expectedScale = (float) Math.sqrt(2.0 / fanIn);
         float[][] weights = new float[10][20];
         
-        WeightInitHe.compute(weights, fanIn);
+        FastRandom random = new FastRandom(12345);
+        WeightInitHe.compute(weights, fanIn, random);
         
         // Calculate sample standard deviation
         double sum = 0.0;
@@ -136,7 +143,8 @@ class WeightInitHeTest {
         float[][] weights = new float[1][1];
         int fanIn = 10;
         
-        WeightInitHe.compute(weights, fanIn);
+        FastRandom random = new FastRandom(12345);
+        WeightInitHe.compute(weights, fanIn, random);
         assertNotEquals(0.0f, weights[0][0], "Single element should be initialized");
     }
     
@@ -146,7 +154,8 @@ class WeightInitHeTest {
         float[][] weights = new float[1][1001];  // Odd size to ensure remainder
         int fanIn = 50;
         
-        WeightInitHe.compute(weights, fanIn);
+        FastRandom random = new FastRandom(12345);
+        WeightInitHe.compute(weights, fanIn, random);
         
         // Check that all elements are initialized, including remainder
         boolean allInitialized = true;
@@ -165,12 +174,12 @@ class WeightInitHeTest {
         
         // Test zero fanIn
         assertThrows(IllegalArgumentException.class, 
-                    () -> WeightInitHe.compute(weights, 0),
+                    () -> WeightInitHe.compute(weights, 0, new FastRandom(12345)),
                     "Should throw exception for zero fanIn");
         
         // Test negative fanIn
         assertThrows(IllegalArgumentException.class, 
-                    () -> WeightInitHe.compute(weights, -10),
+                    () -> WeightInitHe.compute(weights, -10, new FastRandom(12345)),
                     "Should throw exception for negative fanIn");
     }
     
@@ -179,8 +188,10 @@ class WeightInitHeTest {
         float[][] weights1 = new float[10][10];
         float[][] weights2 = new float[10][10];
         
-        WeightInitHe.compute(weights1, 10);   // Small fan-in
-        WeightInitHe.compute(weights2, 1000); // Large fan-in
+        FastRandom random1 = new FastRandom(12345);
+        WeightInitHe.compute(weights1, 10, random1);   // Small fan-in
+        FastRandom random2 = new FastRandom(12345);
+        WeightInitHe.compute(weights2, 1000, random2); // Large fan-in
         
         // Larger fan-in should produce smaller weights on average
         double avg1 = calculateAbsoluteMean(weights1);
@@ -201,7 +212,8 @@ class WeightInitHeTest {
         int fanIn = 50;
         float expectedScale = (float) Math.sqrt(2.0 / fanIn);
         
-        WeightInitHe.compute(weights, fanIn);
+        FastRandom random = new FastRandom(12345);
+        WeightInitHe.compute(weights, fanIn, random);
         
         // Verify all rows are initialized correctly
         for (int i = 0; i < weights.length; i++) {

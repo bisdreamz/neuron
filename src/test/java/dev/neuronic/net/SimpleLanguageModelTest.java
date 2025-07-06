@@ -42,6 +42,7 @@ public class SimpleLanguageModelTest {
             NeuralNet.newBuilder()
                 .input(3)
                 .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f)) // Higher LR, no weight decay
+                .withSeed(12345L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(3, 10, 16)) // Larger embedding
                 .layer(Layers.hiddenDenseRelu(32)) // Dense layers work better for simple patterns
                 .layer(Layers.hiddenDenseRelu(16))
@@ -95,6 +96,7 @@ public class SimpleLanguageModelTest {
             NeuralNet.newBuilder()
                 .input(3)
                 .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0001f)) // High LR for fast convergence
+                .withSeed(12345L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(3, 10, 16))
                 .layer(Layers.hiddenDenseRelu(16))
                 .output(Layers.outputSoftmaxCrossEntropy(10))
@@ -153,6 +155,7 @@ public class SimpleLanguageModelTest {
             NeuralNet.newBuilder()
                 .input(3)
                 .setDefaultOptimizer(new AdamWOptimizer(0.01f, 0.0001f))
+                .withSeed(12345L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(3, 10, 8))
                 .layer(Layers.hiddenGruLastNormalized(8))
                 .output(Layers.outputSoftmaxCrossEntropy(10))
@@ -191,6 +194,7 @@ public class SimpleLanguageModelTest {
             NeuralNet.newBuilder()
                 .input(3)
                 .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f)) // No weight decay
+                .withSeed(12345L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(3, 10, 16))
                 .layer(Layers.hiddenDenseRelu(32))
                 .layer(Layers.hiddenDenseRelu(16))
@@ -225,6 +229,7 @@ public class SimpleLanguageModelTest {
         NeuralNet net = NeuralNet.newBuilder()
             .input(3)
             .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f))
+            .withSeed(42L)  // Use fixed seed for deterministic test
             .layer(Layers.inputSequenceEmbedding(3, 5, 8))
             .layer(Layers.hiddenDenseRelu(8))
             .output(Layers.outputSoftmaxCrossEntropy(5));

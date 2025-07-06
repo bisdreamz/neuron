@@ -2,6 +2,7 @@ package dev.neuronic.net.layers;
 
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.optimizers.SgdOptimizer;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ExecutorService;
@@ -17,7 +18,7 @@ class GruEdgeCaseTest {
     @Test
     void testMinimalDimensions() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 1, 1, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 1, 1, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with minimal viable dimensions
         float[] input = {0.5f}; // Single timestep, single feature
@@ -37,7 +38,7 @@ class GruEdgeCaseTest {
     @Test
     void testSingleTimestep() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 8, 4, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 8, 4, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with single timestep
         float[] input = {1.0f, 0.5f, -0.5f, 0.0f}; // Single timestep
@@ -63,7 +64,7 @@ class GruEdgeCaseTest {
     @Test
     void testLongSequence() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 4, 2, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 4, 2, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with long sequence (100 timesteps)
         int seqLen = 100;
@@ -99,7 +100,7 @@ class GruEdgeCaseTest {
     @Test
     void testExtremeInputValues() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with extreme input values
         float[] extremeInput = {
@@ -120,7 +121,7 @@ class GruEdgeCaseTest {
     @Test
     void testNaNInfinity() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with NaN input
         float[] nanInput = {1.0f, Float.NaN, 0.5f, 0.0f, 1.0f, 0.5f};
@@ -141,7 +142,7 @@ class GruEdgeCaseTest {
     @Test
     void testBackwardPassValidation() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         float[] input = {1.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.5f};
         Layer.LayerContext context = gru.forward(input, false);
@@ -178,7 +179,7 @@ class GruEdgeCaseTest {
     @Test
     void testConcurrentAccess() throws InterruptedException {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 8, 4, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 8, 4, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         ExecutorService executor = Executors.newFixedThreadPool(4);
         try {
@@ -217,7 +218,7 @@ class GruEdgeCaseTest {
     @Test
     void testMemoryStability() {
         SgdOptimizer optimizer = new SgdOptimizer(0.01f);
-        GruLayer gru = new GruLayer(optimizer, 64, 32, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 64, 32, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Run many iterations to test for memory leaks or buffer issues
         for (int i = 0; i < 1000; i++) {
@@ -253,7 +254,7 @@ class GruEdgeCaseTest {
     @Test 
     void testNumericalStability() {
         SgdOptimizer optimizer = new SgdOptimizer(0.001f); // Small learning rate
-        GruLayer gru = new GruLayer(optimizer, 16, 8, WeightInitStrategy.XAVIER);
+        GruLayer gru = new GruLayer(optimizer, 16, 8, WeightInitStrategy.XAVIER, new FastRandom(12345));
         
         // Test with very small inputs (near underflow)
         float[] tinyInput = new float[8 * 3];

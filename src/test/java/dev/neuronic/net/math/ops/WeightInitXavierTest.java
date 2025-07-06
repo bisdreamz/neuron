@@ -1,5 +1,6 @@
 package dev.neuronic.net.math.ops;
 
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -13,7 +14,7 @@ class WeightInitXavierTest {
         int fanIn = 3;
         int fanOut = 4;
         
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+        WeightInitXavier.compute(weights, fanIn, fanOut, new FastRandom(12345));
         
         // Verify all weights are initialized (not zero)
         boolean hasNonZero = false;
@@ -35,7 +36,7 @@ class WeightInitXavierTest {
         int fanIn = 10;
         int fanOut = 20;
         
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+        WeightInitXavier.compute(weights, fanIn, fanOut, new FastRandom(12345));
         
         // Verify all elements are initialized
         boolean hasNonZero = false;
@@ -55,7 +56,7 @@ class WeightInitXavierTest {
         int fanIn = 10;
         int fanOut = 20;
         
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+        WeightInitXavier.compute(weights, fanIn, fanOut, new FastRandom(12345));
         
         // Verify all elements are initialized
         boolean hasNonZero = false;
@@ -78,11 +79,11 @@ class WeightInitXavierTest {
         
         // Small array - will use scalar path
         float[][] smallWeights = new float[100][4];
-        WeightInitXavier.compute(smallWeights, fanIn, fanOut);
+        WeightInitXavier.compute(smallWeights, fanIn, fanOut, new FastRandom(12345));
         
         // Large array - will use vectorized path
         float[][] largeWeights = new float[100][64];
-        WeightInitXavier.compute(largeWeights, fanIn, fanOut);
+        WeightInitXavier.compute(largeWeights, fanIn, fanOut, new FastRandom(12345));
         
         // Calculate statistics for both
         double smallMean = calculateMean2D(smallWeights);
@@ -109,7 +110,7 @@ class WeightInitXavierTest {
         float expectedLimit = (float) Math.sqrt(6.0 / (fanIn + fanOut));
         float[][] weights = new float[10][20];
         
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+        WeightInitXavier.compute(weights, fanIn, fanOut, new FastRandom(12345));
         
         // Check bounds - all values should be within [-limit, +limit]
         for (float[] row : weights) {
@@ -138,7 +139,7 @@ class WeightInitXavierTest {
         int fanIn = 10;
         int fanOut = 20;
         
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+        WeightInitXavier.compute(weights, fanIn, fanOut, new FastRandom(12345));
         assertNotEquals(0.0f, weights[0][0], "Single element should be initialized");
     }
     
@@ -149,7 +150,7 @@ class WeightInitXavierTest {
         int fanIn = 50;
         int fanOut = 100;
         
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+        WeightInitXavier.compute(weights, fanIn, fanOut, new FastRandom(12345));
         
         // Check that all elements are initialized, including remainder
         boolean allInitialized = true;
@@ -168,22 +169,22 @@ class WeightInitXavierTest {
         
         // Test zero fanIn
         assertThrows(IllegalArgumentException.class, 
-                    () -> WeightInitXavier.compute(weights, 0, 10),
+                    () -> WeightInitXavier.compute(weights, 0, 10, new FastRandom(12345)),
                     "Should throw exception for zero fanIn");
         
         // Test zero fanOut
         assertThrows(IllegalArgumentException.class, 
-                    () -> WeightInitXavier.compute(weights, 10, 0),
+                    () -> WeightInitXavier.compute(weights, 10, 0, new FastRandom(12345)),
                     "Should throw exception for zero fanOut");
         
         // Test negative fanIn
         assertThrows(IllegalArgumentException.class, 
-                    () -> WeightInitXavier.compute(weights, -10, 10),
+                    () -> WeightInitXavier.compute(weights, -10, 10, new FastRandom(12345)),
                     "Should throw exception for negative fanIn");
         
         // Test negative fanOut
         assertThrows(IllegalArgumentException.class, 
-                    () -> WeightInitXavier.compute(weights, 10, -10),
+                    () -> WeightInitXavier.compute(weights, 10, -10, new FastRandom(12345)),
                     "Should throw exception for negative fanOut");
     }
     
@@ -192,8 +193,8 @@ class WeightInitXavierTest {
         float[][] weights1 = new float[10][10];
         float[][] weights2 = new float[10][10];
         
-        WeightInitXavier.compute(weights1, 10, 10);    // Small fan-in/out
-        WeightInitXavier.compute(weights2, 100, 100);  // Large fan-in/out
+        WeightInitXavier.compute(weights1, 10, 10, new FastRandom(12345));    // Small fan-in/out
+        WeightInitXavier.compute(weights2, 100, 100, new FastRandom(12345));  // Large fan-in/out
         
         // Larger fan-in/out should produce smaller weights on average
         double avg1 = calculateAbsoluteMean(weights1);
@@ -207,8 +208,8 @@ class WeightInitXavierTest {
         float[][] weights1 = new float[10][10];
         float[][] weights2 = new float[10][10];
         
-        WeightInitXavier.compute(weights1, 10, 100);  // fanIn << fanOut
-        WeightInitXavier.compute(weights2, 100, 10);  // fanIn >> fanOut
+        WeightInitXavier.compute(weights1, 10, 100, new FastRandom(12345));  // fanIn << fanOut
+        WeightInitXavier.compute(weights2, 100, 10, new FastRandom(12345));  // fanIn >> fanOut
         
         // Both should have similar scale since Xavier uses (fanIn + fanOut)
         double avg1 = calculateAbsoluteMean(weights1);
@@ -231,7 +232,7 @@ class WeightInitXavierTest {
         int fanOut = 60;
         float expectedLimit = (float) Math.sqrt(6.0 / (fanIn + fanOut));
         
-        WeightInitXavier.compute(weights, fanIn, fanOut);
+        WeightInitXavier.compute(weights, fanIn, fanOut, new FastRandom(12345));
         
         // Verify all rows are initialized correctly
         for (float[] row : weights) {

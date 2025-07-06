@@ -1,5 +1,6 @@
 package dev.neuronic.net.layers;
 
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.Optimizer;
 
 /**
@@ -123,8 +124,8 @@ public abstract class BaseLayerSpec<T extends BaseLayerSpec<T>> implements Layer
     }
     
     @Override
-    public Layer create(int inputSize, Optimizer defaultOptimizer) {
-        return createLayer(inputSize, getEffectiveOptimizer(defaultOptimizer));
+    public Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random) {
+        return createLayer(inputSize, getEffectiveOptimizer(defaultOptimizer), random);
     }
     
     /**
@@ -133,9 +134,10 @@ public abstract class BaseLayerSpec<T extends BaseLayerSpec<T>> implements Layer
      * 
      * @param inputSize the input size for the layer
      * @param effectiveOptimizer the optimizer to use (after applying default and learning rate scaling)
+     * @param random the random number generator for reproducible results
      * @return the created layer
      */
-    protected abstract Layer createLayer(int inputSize, Optimizer effectiveOptimizer);
+    protected abstract Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random);
     
     /**
      * Gets the effective optimizer for this layer, applying learning rate scaling if needed.

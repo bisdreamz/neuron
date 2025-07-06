@@ -3,6 +3,7 @@ package dev.neuronic.net.layers;
 import dev.neuronic.net.WeightInitStrategy;
 import dev.neuronic.net.common.PooledFloatArray;
 import dev.neuronic.net.common.PooledFloatArray3D;
+import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.math.NetMath;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.optimizers.AdamOptimizer;
@@ -104,7 +105,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable, GradientProv
      * @param features array of feature configurations, one per input position
      * @param initStrategy weight initialization strategy for embeddings
      */
-    public MixedFeatureInputLayer(Optimizer optimizer, Feature[] features, WeightInitStrategy initStrategy) {
+    public MixedFeatureInputLayer(Optimizer optimizer, Feature[] features, WeightInitStrategy initStrategy, FastRandom random) {
         // Comprehensive feature configuration validation
         if (features == null)
             throw new IllegalArgumentException("Features array cannot be null");
@@ -170,7 +171,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable, GradientProv
                 
                 // Initialize embeddings with uniform distribution for better learning
                 // Embeddings need different initialization than dense layers
-                NetMath.embeddingInitUniform(embeddings[i], -0.05f, 0.05f);
+                NetMath.embeddingInitUniform(embeddings[i], -0.05f, 0.05f, random);
                 //NetMath.weightInitXavier(embeddings[i], embeddingDim, embeddingDim);
             }
         }
@@ -697,15 +698,11 @@ public class MixedFeatureInputLayer implements Layer, Serializable, GradientProv
             this.learningRateRatio = (float) learningRateRatio;
         }
         
-        @Override
-        public Layer create(int inputSize) {
-            return createLayer(inputSize, getEffectiveOptimizer(null));
-        }
         
         @Override
-        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer) {
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
             // Input size is ignored for mixed feature layers (determined by feature configuration)
-            return new MixedFeatureInputLayer(effectiveOptimizer, features, initStrategy);
+            return new MixedFeatureInputLayer(effectiveOptimizer, features, initStrategy, random);
         }
     }
     
@@ -924,7 +921,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable, GradientProv
     /**
      * Static method to deserialize a MixedFeatureInputLayer from stream.
      */
-    public static MixedFeatureInputLayer deserialize(DataInputStream in, int version) throws IOException {
+    public static MixedFeatureInputLayer deserialize(DataInputStream in, int version, FastRandom random) throws IOException {
         // Read number of features
         int numFeatures = in.readInt();
         
@@ -1000,7 +997,7 @@ public class MixedFeatureInputLayer implements Layer, Serializable, GradientProv
         if (firstOptimizer == null) {
             throw new IOException("No optimizers found in serialized data");
         }
-        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(firstOptimizer, features, WeightInitStrategy.XAVIER);
+        MixedFeatureInputLayer layer = new MixedFeatureInputLayer(firstOptimizer, features, WeightInitStrategy.XAVIER, random);
         
         // Override with the deserialized per-feature optimizers
         System.arraycopy(featureOptimizers, 0, layer.featureOptimizers, 0, numFeatures);

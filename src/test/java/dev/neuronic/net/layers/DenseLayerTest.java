@@ -3,6 +3,7 @@ package dev.neuronic.net.layers;
 import dev.neuronic.net.activators.Activator;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.WeightInitStrategy;
+import dev.neuronic.net.math.FastRandom;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -52,13 +53,15 @@ class DenseLayerTest {
     
     @Test
     void testDenseLayerConstruction() {
-        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 3, 2, WeightInitStrategy.HE);
+        FastRandom random = new FastRandom(12345);
+        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 3, 2, WeightInitStrategy.HE, random);
         assertEquals(3, layer.getOutputSize());
     }
     
     @Test
     void testForwardPropagation() {
-        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 3, 2, WeightInitStrategy.HE);
+        FastRandom random = new FastRandom(12345);
+        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 3, 2, WeightInitStrategy.HE, random);
         float[] input = {1.0f, 2.0f};
         
         Layer.LayerContext context = layer.forward(input, false);
@@ -71,7 +74,8 @@ class DenseLayerTest {
     
     @Test
     void testWeightInitializationNotZero() {
-        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 10, 5, WeightInitStrategy.HE);
+        FastRandom random = new FastRandom(12345);
+        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 10, 5, WeightInitStrategy.HE, random);
         float[] input = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f}; // Non-zero input
         
         Layer.LayerContext context = layer.forward(input, false);
@@ -89,7 +93,8 @@ class DenseLayerTest {
     
     @Test
     void testBackwardPropagation() {
-        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 3, 2, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        DenseLayer layer = new DenseLayer(mockOptimizer, mockActivator, 3, 2, WeightInitStrategy.XAVIER, random);
         float[] input = {1.0f, 2.0f};
         
         // Forward pass
@@ -110,7 +115,8 @@ class DenseLayerTest {
         
         assertEquals(5, spec.getOutputSize());
         
-        Layer layer = spec.create(10);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(10, mockOptimizer, random);
         assertInstanceOf(DenseLayer.class, layer);
         assertEquals(5, layer.getOutputSize());
     }
@@ -118,8 +124,9 @@ class DenseLayerTest {
     @Test
     void testWeightInitStrategies() {
         // Test that different strategies produce different initializations
-        DenseLayer heLayer = new DenseLayer(mockOptimizer, mockActivator, 5, 4, WeightInitStrategy.HE);
-        DenseLayer xavierLayer = new DenseLayer(mockOptimizer, mockActivator, 5, 4, WeightInitStrategy.XAVIER);
+        FastRandom random = new FastRandom(12345);
+        DenseLayer heLayer = new DenseLayer(mockOptimizer, mockActivator, 5, 4, WeightInitStrategy.HE, random);
+        DenseLayer xavierLayer = new DenseLayer(mockOptimizer, mockActivator, 5, 4, WeightInitStrategy.XAVIER, random);
         
         float[] input = {1.0f, 1.0f, 1.0f, 1.0f};
         
@@ -152,7 +159,8 @@ class DenseLayerTest {
         
         assertEquals(5, spec.getOutputSize());
         
-        Layer layer = spec.create(10);
+        FastRandom random = new FastRandom(12345);
+        Layer layer = spec.create(10, mockOptimizer, random);
         assertInstanceOf(DenseLayer.class, layer);
         assertEquals(5, layer.getOutputSize());
     }
