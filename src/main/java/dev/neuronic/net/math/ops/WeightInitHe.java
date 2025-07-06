@@ -33,11 +33,17 @@ public final class WeightInitHe {
     
     public interface Impl {
         void compute(float[][] weights, int fanIn);
+        void compute(float[][] weights, int fanIn, float noiseLevel);
     }
     
     private static final class ScalarImpl implements Impl {
         @Override
         public void compute(float[][] weights, int fanIn) {
+            compute(weights, fanIn, 0.0f);
+        }
+
+        @Override
+        public void compute(float[][] weights, int fanIn, float noiseLevel) {
             if (fanIn <= 0)
                 throw new IllegalArgumentException("fanIn must be positive, got: " + fanIn);
             
@@ -46,7 +52,7 @@ public final class WeightInitHe {
             
             for (float[] row : weights) {
                 for (int i = 0; i < row.length; i++) {
-                    row[i] = (float)(rnd.nextGaussian() * scale);
+                    row[i] = (float)(rnd.nextGaussian() * scale) + (rnd.nextFloat() - 0.5f) * noiseLevel;
                 }
             }
         }
@@ -79,6 +85,18 @@ public final class WeightInitHe {
      */
     public static void compute(float[][] weights, int fanIn) {
         IMPL.compute(weights, fanIn);
+    }
+
+    /**
+     * Initialize weights using He initialization with added uniform noise.
+     *
+     * @param weights 2D weight matrix to initialize
+     * @param fanIn number of inputs (must be > 0)
+     * @param noiseLevel the level of uniform noise to add
+     * @throws IllegalArgumentException if fanIn <= 0
+     */
+    public static void compute(float[][] weights, int fanIn, float noiseLevel) {
+        IMPL.compute(weights, fanIn, noiseLevel);
     }
     
     static void computeVectorized(float[][] weights, float scale) {

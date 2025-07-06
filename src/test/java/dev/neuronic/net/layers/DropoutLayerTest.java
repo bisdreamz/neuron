@@ -38,7 +38,7 @@ public class DropoutLayerTest {
             input[i] = 1.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, true);
         float[] output = context.outputs();
         
         // With dropout, some values should be zeroed and others scaled
@@ -64,7 +64,7 @@ public class DropoutLayerTest {
         DropoutLayer layer = new DropoutLayer(0.0f, 5);
         
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, true);
         
         assertArrayEquals(input, context.outputs(), EPSILON);
     }
@@ -79,7 +79,7 @@ public class DropoutLayerTest {
             input[i] = 1.0f;
         }
         
-        Layer.LayerContext context = layer.forward(input);
+        Layer.LayerContext context = layer.forward(input, true);
         float[] output = context.outputs();
         
         // Count zeros and non-zeros
@@ -109,7 +109,7 @@ public class DropoutLayerTest {
         DropoutLayer layer = new DropoutLayer(0.5f, 5);
         
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
-        DropoutLayer.DropoutContext context = (DropoutLayer.DropoutContext) layer.forward(input);
+        DropoutLayer.DropoutContext context = (DropoutLayer.DropoutContext) layer.forward(input, true);
         
         float[] upstreamGradient = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f};
         Layer.LayerContext[] stack = {context};
@@ -131,7 +131,7 @@ public class DropoutLayerTest {
         DropoutLayer layer = new DropoutLayer(0.5f, 5);
         
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
-        DropoutLayer.DropoutContext context = (DropoutLayer.DropoutContext) layer.forward(input);
+        DropoutLayer.DropoutContext context = (DropoutLayer.DropoutContext) layer.forward(input, true);
         
         float[] upstreamGradient = {0.1f, 0.2f, 0.3f, 0.4f, 0.5f};
         Layer.LayerContext[] stack = {context};
@@ -166,7 +166,7 @@ public class DropoutLayerTest {
         int numTrials = 1000;
         
         for (int trial = 0; trial < numTrials; trial++) {
-            Layer.LayerContext context = layer.forward(input);
+            Layer.LayerContext context = layer.forward(input, true);
             float[] output = context.outputs();
             
             float outputSum = 0.0f;
@@ -219,7 +219,7 @@ public class DropoutLayerTest {
         DropoutLayer layer = new DropoutLayer(0.5f, 5);
         float[] wrongSizeInput = {1.0f, 2.0f, 3.0f}; // Wrong size
         
-        assertThrows(IllegalArgumentException.class, () -> layer.forward(wrongSizeInput));
+        assertThrows(IllegalArgumentException.class, () -> layer.forward(wrongSizeInput, true));
     }
     
     @Test
@@ -234,10 +234,10 @@ public class DropoutLayerTest {
         
         // Run multiple times to verify dropout is consistently applied
         boolean foundDifference = false;
-        float[] firstOutput = layer.forward(input).outputs().clone();
+        float[] firstOutput = layer.forward(input, true).outputs().clone();
         
         for (int trial = 0; trial < 10; trial++) {
-            float[] output = layer.forward(input).outputs();
+            float[] output = layer.forward(input, true).outputs();
             if (!java.util.Arrays.equals(firstOutput, output)) {
                 foundDifference = true;
                 break;
@@ -259,7 +259,7 @@ public class DropoutLayerTest {
                 input[i] = 1.0f;
             }
             
-            Layer.LayerContext context = layer.forward(input);
+            Layer.LayerContext context = layer.forward(input, true);
             float[] output = context.outputs();
             
             int zeros = 0;

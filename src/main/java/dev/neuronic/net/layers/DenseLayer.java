@@ -58,18 +58,24 @@ public class DenseLayer implements Layer, GradientAccumulator, Serializable {
         switch (initStrategy) {
             case XAVIER -> NetMath.weightInitXavier(weights, inputs, neurons);
             case HE -> NetMath.weightInitHe(weights, inputs);
+            case HE_PLUS_UNIFORM_NOISE -> NetMath.weightInitHePlusUniformNoise(weights, inputs, 0.01f);
         }
         NetMath.biasInit(biases, 0.0f);
     }
 
-    public Layer.LayerContext forward(float[] input) {
+    public Layer.LayerContext forward(float[] input, boolean isTraining, ExecutorService executor) {
         float[] preActivations = new float[neurons];
         NetMath.matrixPreActivationsColumnMajor(input, weights, biases, preActivations);
         
         float[] activationOutputs = new float[neurons];
-        this.activator.activate(preActivations, activationOutputs);
+        this.activator.activate(preActivations, activationOutputs, executor);
         
         return new Layer.LayerContext(input, preActivations, activationOutputs);
+    }
+
+    @Override
+    public LayerContext forward(float[] input, boolean isTraining) {
+        return forward(input, isTraining, null);
     }
 
     public float[] backward(Layer.LayerContext[] stack, int stackIndex, float[] upstreamGradient) {

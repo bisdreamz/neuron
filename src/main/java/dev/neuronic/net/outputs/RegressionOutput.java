@@ -1,15 +1,9 @@
 package dev.neuronic.net.outputs;
 
 /**
- * Marker interface for regression output layers.
- * 
- * <p>This interface identifies layers that perform regression tasks,
- * allowing SimpleNet and other components to validate network configurations
- * without hard-coding specific implementation classes.
- * 
- * <p>All regression output layers (LinearRegressionOutput, HuberRegressionOutput, etc.)
- * should implement this interface to be recognized as valid regression outputs.
+ * A marker interface for regression output layers.
+ * This allows for type-safe checking of regression networks without
+ * relying on specific class names.
  */
 public interface RegressionOutput {
-    // Marker interface - no methods required
 }

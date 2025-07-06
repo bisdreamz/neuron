@@ -55,5 +55,20 @@ public enum WeightInitStrategy {
      * This is the most commonly used initialization in modern neural networks since
      * ReLU and its variants are the most popular activation functions.
      */
-    HE
+    HE,
+
+    /**
+     * He initialization plus uniform noise.
+     *
+     * <p><strong>When to use:</strong>
+     * <ul>
+     *   <li>When you suspect the model is getting stuck in a local minimum</li>
+     *   <li>When you want to add a small amount of noise to the initialization</li>
+     * </ul>
+     *
+     * <p><strong>Why it works:</strong>
+     * Adds a small amount of uniform noise to the He initialization, which can help
+     * break symmetries and prevent the model from getting stuck in a collapsed state.
+     */
+    HE_PLUS_UNIFORM_NOISE
 }

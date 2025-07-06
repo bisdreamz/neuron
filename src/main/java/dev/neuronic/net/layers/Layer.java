@@ -31,7 +31,7 @@ public interface Layer {
         public float[] outputs() { return outputs; }
     }
 
-    public LayerContext forward(float[] input);
+    public LayerContext forward(float[] input, boolean isTraining);
 
     public float[] backward(LayerContext[] stack, int stackIndex, float[] upstreamGradient);
     
@@ -120,16 +120,18 @@ public interface Layer {
     public static record GradientDimensions(int weightRows, int weightCols, int biasSize) {}
     
     // Executor-aware methods with smart defaults
-    default LayerContext forward(float[] input, ExecutorService executor) {
-        if (executor == null)
-            return forward(input);
-        
-        // Smart default: submit to executor and wait for result
-        try {
-            return executor.submit(() -> forward(input)).get();
-        } catch (Exception e) {
-            throw new RuntimeException("Parallel forward pass failed", e);
+    default LayerContext forward(float[] input, boolean isTraining, ExecutorService executor) {
+        if (executor != null) {
+            return forward(input, executor);
+        } else {
+            return forward(input, isTraining);
         }
+    }
+
+    default LayerContext forward(float[] input, ExecutorService executor) {
+        // This default implementation assumes training mode is false for executor-based forward passes.
+        // Layers that have different behavior for training/inference should override this.
+        return forward(input, false);
     }
     
     default float[] backward(LayerContext[] stack, int stackIndex, float[] upstreamGradient, ExecutorService executor) {

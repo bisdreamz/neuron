@@ -39,12 +39,12 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {0.0f, 1.0f};
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         float[] originalPreActivationsA = contextA.preActivations().clone();
         
         // Second call (should not corrupt first context)
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify first context wasn't corrupted
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f, 
@@ -66,12 +66,12 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {0.0f, 1.0f, -0.5f};
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         // Note: GRU intentionally returns null for preActivations, so we skip that check
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption of outputs
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -96,11 +96,11 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {2.0f, 2.0f, 2.0f}; // "b b b"
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -121,12 +121,12 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {0.0f, 1.0f};
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         float[] originalPreActivationsA = contextA.preActivations().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -148,12 +148,12 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {0.0f, 1.0f, -0.5f};
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         float[] originalPreActivationsA = contextA.preActivations().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -175,11 +175,11 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {4.0f, 5.0f, 6.0f};
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -201,11 +201,11 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {1.0f, 1.0f, 10.0f};   // mean=4, std=4.24
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -229,7 +229,7 @@ public class LayerBufferIntegrityTest {
         
         for (int i = 0; i < 5; i++) {
             float[] input = {i * 1.0f, i * 2.0f};
-            contexts[i] = layer.forward(input);
+            contexts[i] = layer.forward(input, false);
             expectedOutputs[i] = contexts[i].outputs().clone();
         }
         
@@ -257,12 +257,12 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {0.0f, 1.0f, -0.5f};
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         float[] originalPreActivationsA = contextA.preActivations().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -284,12 +284,12 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {0.0f, 1.0f};
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         float[] originalPreActivationsA = contextA.preActivations().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -311,11 +311,11 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {2.0f, 8.0f, 15.0f}; // Different token IDs
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,
@@ -341,11 +341,11 @@ public class LayerBufferIntegrityTest {
         float[] inputB = {2.0f, 8.0f, -0.5f, 2.5f}; // Different features
         
         // First call
-        Layer.LayerContext contextA = layer.forward(inputA);
+        Layer.LayerContext contextA = layer.forward(inputA, false);
         float[] originalOutputsA = contextA.outputs().clone();
         
         // Second call
-        Layer.LayerContext contextB = layer.forward(inputB);
+        Layer.LayerContext contextB = layer.forward(inputB, false);
         
         // Verify no corruption
         assertArrayEquals(originalOutputsA, contextA.outputs(), 0.001f,

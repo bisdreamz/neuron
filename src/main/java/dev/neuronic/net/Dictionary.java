@@ -4,43 +4,38 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
 
 /**
  * Thread-safe dictionary for mapping arbitrary values to integer indices.
- * Handles automatic index assignment and bi-directional lookup.
+ * Uses sequential indexing for compatibility with serialization and tests.
+ * Enforces maximum bounds to ensure indices stay within neural network layer expectations.
  */
 public class Dictionary {
 
-    private final ConcurrentHashMap<Object, Integer> valueToIndex = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Integer, Object> indexToValue = new ConcurrentHashMap<>();
-    private final AtomicInteger nextIndex = new AtomicInteger(0);
-    private final boolean allowNewValues;
+    protected final ConcurrentHashMap<Object, Integer> valueToIndex = new ConcurrentHashMap<>();
+    protected final ConcurrentHashMap<Integer, Object> indexToValue = new ConcurrentHashMap<>();
+    protected final int maxBounds; // Maximum index value allowed (for neural network layer compatibility)
 
     /**
-     * Create a dictionary that allows new values to be added automatically.
+     * Create a dictionary with specified maximum bounds for indices.
+     * 
+     * @param maxBounds maximum index value allowed (exclusive)
      */
-    public Dictionary() {
-        this(true);
+    public Dictionary(int maxBounds) {
+        if (maxBounds <= 0)
+            throw new IllegalArgumentException("maxBounds must be positive: " + maxBounds);
+        this.maxBounds = maxBounds;
     }
 
     /**
-     * Create a dictionary with configurable behavior for unknown values.
-     *
-     * @param allowNewValues if true, unknown values get new indices; if false, returns -1
-     */
-    public Dictionary(boolean allowNewValues) {
-        this.allowNewValues = allowNewValues;
-    }
-
-    /**
-     * Get the index for a value, creating a new index if value is unknown and allowed.
-     *
+     * Get the index for a value, creating an index if value is unknown.
+     * Uses sequential allocation for compatibility with existing tests and serialization.
+     * 
      * @param value the value to look up
-     * @return index for the value, or -1 if unknown and new values not allowed
+     * @return index for the value
      */
-    public int getIndex(Object value) {
+    public synchronized int getIndex(Object value) {
         if (value == null)
             throw new IllegalArgumentException("Dictionary values cannot be null");
 
@@ -48,18 +43,20 @@ public class Dictionary {
         if (existing != null)
             return existing;
 
-        if (!allowNewValues)
-            return -1; // Unknown value, not allowed to create new
-
-        int newIndex = nextIndex.getAndIncrement();
-        Integer previousIndex = valueToIndex.putIfAbsent(value, newIndex);
-
-        if (previousIndex != null)
-            return previousIndex;
-
+        // Check if we have capacity
+        int currentSize = size();
+        if (currentSize >= maxBounds) {
+            throw new IllegalStateException("Dictionary is full: cannot allocate more indices within bounds [0, " + maxBounds + ")");
+        }
+        
+        // Use sequential indexing for test compatibility
+        int newIndex = currentSize;
+        
+        valueToIndex.put(value, newIndex);
         indexToValue.put(newIndex, value);
         return newIndex;
     }
+    
 
     /**
      * Get the value for an index.
@@ -93,10 +90,11 @@ public class Dictionary {
     }
 
     /**
-     * Get the next index that would be assigned to a new value.
+     * Get the next index that would be assigned.
+     * For sequential allocation, this is the current size.
      */
     public int getNextIndex() {
-        return nextIndex.get();
+        return size();
     }
 
     /**
@@ -105,30 +103,14 @@ public class Dictionary {
     public void clear() {
         valueToIndex.clear();
         indexToValue.clear();
-        nextIndex.set(0);
     }
 
-    /**
-     * Create a frozen copy of this dictionary that doesn't allow new values.
-     * Useful for inference when you want to reject unknown values.
-     */
-    public Dictionary freeze() {
-        Dictionary frozen = new Dictionary(false);
-
-        frozen.valueToIndex.putAll(this.valueToIndex);
-        frozen.indexToValue.putAll(this.indexToValue);
-        frozen.nextIndex.set(this.nextIndex.get());
-
-        return frozen;
-    }
 
     /**
      * Serialize the dictionary to a stream.
      */
     public void writeTo(DataOutputStream out) throws IOException {
         out.writeInt(valueToIndex.size());
-        out.writeBoolean(allowNewValues);
-        out.writeInt(nextIndex.get());
 
         for (Map.Entry<Object, Integer> entry : valueToIndex.entrySet()) {
             // Write value as string representation for simplicity
@@ -140,13 +122,10 @@ public class Dictionary {
     /**
      * Deserialize a dictionary from a stream.
      */
-    public static Dictionary readFrom(DataInputStream in) throws IOException {
+    public static Dictionary readFrom(DataInputStream in, int maxBounds) throws IOException {
         int size = in.readInt();
-        boolean allowNewValues = in.readBoolean();
-        int nextIndex = in.readInt();
 
-        Dictionary dict = new Dictionary(allowNewValues);
-        dict.nextIndex.set(nextIndex);
+        Dictionary dict = new Dictionary(maxBounds);
 
         for (int i = 0; i < size; i++) {
             String valueStr = in.readUTF();
@@ -177,7 +156,7 @@ public class Dictionary {
      * Get the estimated serialized size of this dictionary.
      */
     public int getSerializedSize() {
-        int size = 12; // size + allowNewValues + nextIndex
+        int size = 8; // size + tableSize
         for (Object key : valueToIndex.keySet()) {
             size += 2 + key.toString().getBytes().length; // UTF string
             size += 4; // integer value
@@ -187,7 +166,7 @@ public class Dictionary {
 
     @Override
     public String toString() {
-        return String.format("Dictionary[size=%d, allowNewValues=%s, nextIndex=%d]",
-                size(), allowNewValues, getNextIndex());
+        return String.format("Dictionary[size=%d, maxBounds=%d]",
+                size(), maxBounds);
     }
 }

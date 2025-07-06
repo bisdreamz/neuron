@@ -103,7 +103,7 @@ class EmbeddingLanguageModelTest {
                 tokens[i] = i % 10; // Valid token IDs
             }
             
-            Layer.LayerContext context = embeddingLayer.forward(tokens);
+            Layer.LayerContext context = embeddingLayer.forward(tokens, false);
             assertEquals(seqLen * 5, context.outputs().length,
                 "Output size should scale with sequence length: " + seqLen);
         }

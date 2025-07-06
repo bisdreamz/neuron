@@ -30,7 +30,7 @@ class GruLayerTest {
             0.0f, 1.0f, 0.5f   // timestep 2: [0.0, 1.0, 0.5]
         };
         
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         float[] output = context.outputs();
         
         assertEquals(2 * 4, output.length, "Output should be seqLen * hiddenSize");
@@ -56,7 +56,7 @@ class GruLayerTest {
                 input[i] = (float) Math.random();
             }
             
-            Layer.LayerContext context = gru.forward(input);
+            Layer.LayerContext context = gru.forward(input, false);
             assertEquals(seqLen * 8, context.outputs().length,
                 "Output size should scale with sequence length: " + seqLen);
         }
@@ -70,14 +70,14 @@ class GruLayerTest {
         // Same input should produce same output (deterministic)
         float[] input = {1.0f, 0.0f, 0.5f, 1.0f}; // 2 timesteps
         
-        float[] output1 = gru.forward(input).outputs();
-        float[] output2 = gru.forward(input).outputs();
+        float[] output1 = gru.forward(input, false).outputs();
+        float[] output2 = gru.forward(input, false).outputs();
         
         assertArrayEquals(output1, output2, 1e-6f, "GRU should be deterministic");
         
         // Different inputs should produce different outputs
         float[] differentInput = {0.0f, 1.0f, 1.0f, 0.5f};
-        float[] output3 = gru.forward(differentInput).outputs();
+        float[] output3 = gru.forward(differentInput, false).outputs();
         
         assertFalse(java.util.Arrays.equals(output1, output3), "Different inputs should produce different outputs");
     }
@@ -89,7 +89,7 @@ class GruLayerTest {
         
         // Test forward pass
         float[] input = {1.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.5f};
-        float[] originalOutput = original.forward(input).outputs();
+        float[] originalOutput = original.forward(input, false).outputs();
         
         // Serialize
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -109,7 +109,7 @@ class GruLayerTest {
         assertEquals(original.getTypeId(), deserialized.getTypeId());
         
         // Test forward pass equivalence
-        float[] deserializedOutput = deserialized.forward(input).outputs();
+        float[] deserializedOutput = deserialized.forward(input, false).outputs();
         assertArrayEquals(originalOutput, deserializedOutput, 1e-6f,
             "Forward pass should be identical after serialization");
     }
@@ -136,7 +136,7 @@ class GruLayerTest {
         
         // Input length not multiple of inputSize
         assertThrows(IllegalArgumentException.class, () -> {
-            gru.forward(new float[]{1.0f, 2.0f}); // length=2, inputSize=3
+            gru.forward(new float[]{1.0f, 2.0f}, false); // length=2, inputSize=3
         });
         
         // Input with wrong dimensions should work but might produce unexpected results
@@ -172,7 +172,7 @@ class GruLayerTest {
         GruLayer gru = new GruLayer(optimizer, 4, 3, WeightInitStrategy.XAVIER);
         
         float[] input = {1.0f, 0.0f, 0.5f};
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         
         // Backward pass should now work
         float[] upstreamGrad = {0.1f, 0.2f, 0.3f, 0.4f};
@@ -198,7 +198,7 @@ class GruLayerTest {
             0.0f, 1.0f,  // t=1  
             0.5f, 0.0f   // t=2
         };
-        Layer.LayerContext context = gru.forward(input);
+        Layer.LayerContext context = gru.forward(input, false);
         
         // Upstream gradients for all timesteps
         float[] upstreamGrad = {
@@ -233,7 +233,7 @@ class GruLayerTest {
         float[] target = {1.0f, 0.0f};
         
         // Get initial output
-        Layer.LayerContext context1 = gru.forward(input);
+        Layer.LayerContext context1 = gru.forward(input, false);
         float[] output1 = context1.outputs().clone();
         
         // Compute simple MSE gradients
@@ -246,7 +246,7 @@ class GruLayerTest {
         gru.backward(new Layer.LayerContext[]{context1}, 0, gradients);
         
         // Forward pass again to see if it learned
-        Layer.LayerContext context2 = gru.forward(input);
+        Layer.LayerContext context2 = gru.forward(input, false);
         float[] output2 = context2.outputs();
         
         // Output should be different after learning (weights updated)

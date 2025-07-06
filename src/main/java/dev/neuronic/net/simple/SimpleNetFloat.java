@@ -8,11 +8,6 @@ import dev.neuronic.net.layers.MixedFeatureInputLayer;
 import dev.neuronic.net.losses.MseLoss;
 import dev.neuronic.net.losses.Loss;
 import dev.neuronic.net.serialization.SerializationConstants;
-import dev.neuronic.net.training.BatchTrainer;
-import dev.neuronic.net.training.TrainingCallback;
-import dev.neuronic.net.training.EarlyStoppingCallback;
-import dev.neuronic.net.training.ModelCheckpointCallback;
-import dev.neuronic.net.training.VisualizationCallback;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -523,7 +518,21 @@ public class SimpleNetFloat extends SimpleNet<Float> {
             int numDictionaries = in.readInt();
             for (int i = 0; i < numDictionaries; i++) {
                 String featureName = in.readUTF();
-                Dictionary dict = Dictionary.readFrom(in);
+                
+                // Find the feature index and get maxBounds
+                int featureIndex = -1;
+                for (int j = 0; j < simpleNet.featureNames.length; j++) {
+                    if (simpleNet.featureNames[j].equals(featureName)) {
+                        featureIndex = j;
+                        break;
+                    }
+                }
+                if (featureIndex == -1) {
+                    throw new IOException("Unknown feature name in serialized data: " + featureName);
+                }
+                
+                int maxBounds = simpleNet.features[featureIndex].getMaxUniqueValues();
+                Dictionary dict = Dictionary.readFrom(in, maxBounds);
                 simpleNet.featureDictionaries.put(featureName, dict);
             }
         }

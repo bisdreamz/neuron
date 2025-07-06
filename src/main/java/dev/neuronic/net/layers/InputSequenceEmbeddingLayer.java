@@ -78,6 +78,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
     private static final int UNK_INDEX = 0;
     
     private final Optimizer optimizer;
+    private Optimizer embeddingOptimizer; // Optimizer for embeddings (may be same as optimizer)
     private final Dictionary vocabulary;
     private final float[][] embeddings; // [vocabSize][embeddingDim]
     private final int sequenceLength;
@@ -98,10 +99,11 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
             throw new IllegalArgumentException("Embedding dim must be positive: " + embeddingDim);
         
         this.optimizer = optimizer;
+        this.embeddingOptimizer = embeddingOptimizer != null ? embeddingOptimizer : optimizer.forEmbeddings();
         this.sequenceLength = sequenceLength;
         this.maxVocabSize = maxVocabSize;
         this.embeddingDim = embeddingDim;
-        this.vocabulary = new Dictionary();
+        this.vocabulary = new Dictionary(maxVocabSize);
         this.embeddings = new float[maxVocabSize][embeddingDim];
         this.outputBuffers = ThreadLocal.withInitial(() -> new float[sequenceLength * embeddingDim]);
         this.embeddingGradientBuffers = ThreadLocal.withInitial(() -> new float[maxVocabSize][embeddingDim]);
@@ -110,15 +112,13 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
         // Dictionary will auto-assign indices, so we need to ensure <unk> gets 0
         vocabulary.getIndex(UNK_TOKEN); // This will assign index 0
         
-        // Initialize embeddings
-        switch (initStrategy) {
-            case XAVIER -> NetMath.weightInitXavier(embeddings, embeddingDim, embeddingDim);
-            case HE -> NetMath.weightInitHe(embeddings, embeddingDim);
-        }
+        // Initialize embeddings with uniform distribution for better learning
+        // Embeddings need different initialization than dense layers
+        NetMath.embeddingInitUniform(embeddings, -0.05f, 0.05f);
     }
     
     @Override
-    public LayerContext forward(float[] input) {
+    public LayerContext forward(float[] input, boolean isTraining) {
         // Support dual mode: float arrays containing token IDs for bulk training
         if (input.length != sequenceLength) {
             throw new IllegalArgumentException(String.format(
@@ -154,7 +154,7 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
     
     @Override
     public LayerContext forward(float[] input, ExecutorService executor) {
-        return forward(input);
+        return forward(input, false);
     }
     
     /**
@@ -211,7 +211,13 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
             String[] words = seqContext.words;
             
             for (int i = 0; i < words.length; i++) {
-                int tokenId = vocabulary.getIndex(words[i]);
+                int tokenId;
+                try {
+                    tokenId = vocabulary.getIndex(words[i]);
+                } catch (IllegalStateException e) {
+                    // Dictionary is full - use UNK token
+                    tokenId = UNK_INDEX;
+                }
                 if (tokenId == -1) {
                     tokenId = UNK_INDEX; // Word not in vocabulary during backward pass
                 }
@@ -235,8 +241,8 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
             }
         }
         
-        // Update embeddings
-        optimizer.optimize(embeddings, emptyBiases, embeddingGradients, emptyBiasGradients);
+        // Update embeddings using embedding optimizer (no weight decay)
+        embeddingOptimizer.optimize(embeddings, emptyBiases, embeddingGradients, emptyBiasGradients);
         
         // No gradient to propagate further back
         return null;
@@ -307,7 +313,13 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
      * Get embedding for a specific word (for analysis/debugging).
      */
     public float[] getWordEmbedding(String word) {
-        int tokenId = vocabulary.getIndex(word);
+        int tokenId;
+        try {
+            tokenId = vocabulary.getIndex(word);
+        } catch (IllegalStateException e) {
+            // Dictionary is full - use UNK token
+            return embeddings[UNK_INDEX].clone();
+        }
         if (tokenId == -1 || tokenId >= maxVocabSize) {
             return embeddings[UNK_INDEX].clone(); // Return UNK embedding
         }
@@ -319,7 +331,13 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
      * Returns UNK_INDEX if word is not in vocabulary or vocabulary is full.
      */
     public int getTokenId(String word) {
-        int tokenId = vocabulary.getIndex(word);
+        int tokenId;
+        try {
+            tokenId = vocabulary.getIndex(word);
+        } catch (IllegalStateException e) {
+            // Dictionary is full - use UNK token
+            return UNK_INDEX;
+        }
         if (tokenId == -1 || tokenId >= maxVocabSize) {
             return UNK_INDEX;
         }
@@ -431,6 +449,14 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
         
         // Write optimizer
         writeOptimizer(out, optimizer, version);
+        
+        // Write embedding optimizer (for versions that support it)
+        if (embeddingOptimizer != optimizer) {
+            out.writeBoolean(true); // Has separate embedding optimizer
+            writeOptimizer(out, embeddingOptimizer, version);
+        } else {
+            out.writeBoolean(false); // No separate embedding optimizer
+        }
     }
     
     @Override
@@ -468,13 +494,30 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
         // Read optimizer
         Optimizer optimizer = readOptimizer(in, version);
         
+        // Read embedding optimizer (if separate)
+        Optimizer embeddingOptimizer = optimizer;
+        boolean hasSeparateEmbeddingOptimizer = in.readBoolean();
+        if (hasSeparateEmbeddingOptimizer) {
+            embeddingOptimizer = readOptimizer(in, version);
+        }
+        
         // Create layer and restore state
         InputSequenceEmbeddingLayer layer = new InputSequenceEmbeddingLayer(
             optimizer, sequenceLength, maxVocabSize, embeddingDim, WeightInitStrategy.XAVIER);
         
+        // Override embedding optimizer if different from deserialization
+        if (hasSeparateEmbeddingOptimizer) {
+            layer.embeddingOptimizer = embeddingOptimizer;
+        }
+        
         // Restore vocabulary - ensure words are added in order
         for (String word : words) {
-            layer.vocabulary.getIndex(word);
+            try {
+                layer.vocabulary.getIndex(word);
+            } catch (IllegalStateException e) {
+                // Dictionary is full - skip remaining words
+                break;
+            }
         }
         
         // Restore embeddings

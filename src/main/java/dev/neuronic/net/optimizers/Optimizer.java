@@ -65,6 +65,26 @@ public interface Optimizer {
     }
     
     /**
+     * Update weights and biases using a stable key for stateful optimizers.
+     * This is crucial for layers like embeddings where the weight/gradient arrays
+     * may be temporary or represent a subset of the full parameter set.
+     *
+     * @param stateKey a stable object to key optimizer state (e.g., the full embedding table)
+     * @param weights the weight parameters to update
+     * @param biases the bias parameters to update
+     * @param weightGradients the gradients w.r.t. weights
+     * @param biasGradients the gradients w.r.t. biases
+     * @param executor optional executor service for internal parallelism
+     */
+    default void optimize(Object stateKey, float[][] weights, float[] biases,
+                         float[][] weightGradients, float[] biasGradients,
+                         ExecutorService executor) {
+        // Default implementation falls back to the original method for backward compatibility.
+        // Stateful optimizers (Adam, AdamW) MUST override this to handle state correctly.
+        optimize(weights, biases, weightGradients, biasGradients, executor);
+    }
+
+    /**
      * Set the learning rate for this optimizer.
      * 
      * <p>This method allows dynamic learning rate adjustment during training,
@@ -77,5 +97,39 @@ public interface Optimizer {
      * @param learningRate the new learning rate to use
      */
     void setLearningRate(float learningRate);
+
+    /**
+     * Performs a sparse "lazy" update, ideal for embedding layers.
+     * Only the optimizer states for the specified indices are updated, preventing state decay
+     * for untouched parameters. This method must be implemented by all stateful optimizers.
+     *
+     * @param stateKey         A stable object to key the optimizer state (e.g., the full embedding table).
+     * @param allWeights       The full weight matrix (e.g., the entire embedding table).
+     * @param indicesToUpdate  An array of indices corresponding to the rows in `allWeights` that need updating.
+     * @param gradients        An array of gradients, where `gradients[i]` corresponds to `indicesToUpdate[i]`.
+     *                         Must have the same length as `indicesToUpdate`.
+     * @param executor         Optional executor for parallelization.
+     */
+    void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
+                        float[][] gradients, ExecutorService executor);
+    
+    /**
+     * Create a variant of this optimizer suitable for embeddings.
+     * 
+     * <p>Embeddings have different optimization needs than dense layers:
+     * <ul>
+     *   <li>Reduced or no weight decay (sparse features shouldn't be pulled to zero)</li>
+     *   <li>Potentially different learning rates</li>
+     *   <li>Different gradient clipping thresholds</li>
+     * </ul>
+     * 
+     * <p>Default implementation returns the same optimizer (no changes).
+     * Optimizers like AdamW should override to reduce weight decay.
+     * 
+     * @return an optimizer configured for embedding parameters
+     */
+    default Optimizer forEmbeddings() {
+        return this;
+    }
 }
 

@@ -85,7 +85,7 @@ public class GruOutputModeTest {
                                       WeightInitStrategy.XAVIER, GruLayer.OutputMode.ALL_TIMESTEPS);
         
         float[] input = new float[seqLen * inputSize];
-        LayerContext contextAll = gruAll.forward(input);
+        LayerContext contextAll = gruAll.forward(input, false);
         
         // Should output all timesteps: seqLen * hiddenSize
         assertEquals(seqLen * hiddenSize, contextAll.outputs().length);
@@ -94,7 +94,7 @@ public class GruOutputModeTest {
         GruLayer gruLast = new GruLayer(optimizer, hiddenSize, inputSize, 
                                        WeightInitStrategy.XAVIER, GruLayer.OutputMode.LAST_TIMESTEP);
         
-        LayerContext contextLast = gruLast.forward(input);
+        LayerContext contextLast = gruLast.forward(input, false);
         
         // Should output only last timestep: hiddenSize
         assertEquals(hiddenSize, contextLast.outputs().length);
@@ -110,7 +110,7 @@ public class GruOutputModeTest {
         
         // Should behave like ALL_TIMESTEPS by default
         float[] input = new float[5 * 16]; // 5 timesteps, 16 input size
-        LayerContext context = oldGru.forward(input);
+        LayerContext context = oldGru.forward(input, false);
         
         assertEquals(5 * 32, context.outputs().length); // All timesteps
     }

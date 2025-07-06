@@ -74,12 +74,12 @@ class SerializableComponentsTest {
         float[] input = {1.0f, 2.0f};
         float[] target = {0.1f, 0.8f, 0.1f};
         for (int i = 0; i < 5; i++) {
-            var context = original.forward(input);
+            var context = original.forward(input, true);
             original.backward(new DenseLayer.LayerContext[]{context}, 0, target);
         }
         
         // Get original prediction
-        float[] originalOutput = original.forward(input).outputs();
+        float[] originalOutput = original.forward(input, false).outputs();
         
         // Serialize
         byte[] serialized = serializeComponent(original);
@@ -89,7 +89,7 @@ class SerializableComponentsTest {
             new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION);
         
         // Test prediction equivalence
-        float[] deserializedOutput = deserialized.forward(input).outputs();
+        float[] deserializedOutput = deserialized.forward(input, false).outputs();
         
         assertArrayEquals(originalOutput, deserializedOutput, 1e-6f,
             "Dense layer outputs should be identical after serialization");
@@ -110,12 +110,12 @@ class SerializableComponentsTest {
         float[] input = {1.0f, 2.0f, 3.0f, 4.0f};
         float[] target = {0.0f, 1.0f, 0.0f}; // One-hot for class 1
         for (int i = 0; i < 10; i++) {
-            var context = original.forward(input);
+            var context = original.forward(input, true);
             original.backward(new SoftmaxCrossEntropyOutput.LayerContext[]{context}, 0, target);
         }
         
         // Get original predictions and loss
-        var originalContext = original.forward(input);
+        var originalContext = original.forward(input, false);
         float[] originalOutput = originalContext.outputs();
         float originalLoss = original.computeLoss(originalOutput, target);
         
@@ -127,7 +127,7 @@ class SerializableComponentsTest {
             new DataInputStream(new ByteArrayInputStream(serialized)), TEST_VERSION);
         
         // Test prediction and loss equivalence
-        var deserializedContext = deserialized.forward(input);
+        var deserializedContext = deserialized.forward(input, false);
         float[] deserializedOutput = deserializedContext.outputs();
         float deserializedLoss = deserialized.computeLoss(deserializedOutput, target);
         
