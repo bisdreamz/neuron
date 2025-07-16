@@ -11,6 +11,7 @@ import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.serialization.SerializationConstants;
 import dev.neuronic.net.serialization.SerializationRegistry;
 import dev.neuronic.net.Dictionary;
+import dev.neuronic.net.Shape;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -47,6 +48,31 @@ import java.util.concurrent.ExecutorService;
  *   <li>Automatically builds vocabulary from training data</li>
  *   <li>Outputs concatenated embeddings: [seqLen × embeddingDim]</li>
  * </ol>
+ * 
+ * <p><b>IMPORTANT - Weight Decay Behavior:</b>
+ * This layer automatically disables weight decay for embeddings, following universal
+ * best practices in modern NLP (GPT, BERT, T5, LLaMA). Embedding parameters should
+ * not be regularized toward zero as this harms the model's ability to distinguish
+ * between tokens.
+ * 
+ * <p><b>To re-enable weight decay (rare):</b>
+ * <pre>{@code
+ * // If you need weight decay on embeddings (not recommended):
+ * Optimizer customOptimizer = new AdamWOptimizer(0.001f, 0.01f);
+ * NeuralNet net = NeuralNet.newBuilder()
+ *     .setDefaultOptimizer(new AdamWOptimizer(0.001f, 0.01f))
+ *     .layer(InputSequenceEmbeddingLayer.spec(seqLen, vocabSize, embedDim, 
+ *            customOptimizer, WeightInitStrategy.XAVIER))  // Explicit optimizer
+ *     .build();
+ * }</pre>
+ * 
+ * <p><b>Why is weight decay disabled?</b>
+ * <ul>
+ *   <li>Prevents rare tokens from being regularized to zero</li>
+ *   <li>Maintains distinguishability between vocabulary items</li>
+ *   <li>Standard practice in all modern language models</li>
+ *   <li>Applies to advertising/RecSys sparse features too</li>
+ * </ul>
  * 
  * <p><b>Example Usage - Language Model:</b>
  * <pre>{@code
@@ -411,6 +437,33 @@ public class InputSequenceEmbeddingLayer implements Layer, Serializable {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
+        
+        @Override
+        public boolean prefersShapeAPI() {
+            return true; // We output 2D shape: [sequenceLength, embeddingDim]
+        }
+        
+        @Override
+        public Shape getOutputShape(Shape inputShape) {
+            // Output is always [sequenceLength, embeddingDim] regardless of input
+            return Shape.sequence(sequenceLength, embeddingDim);
+        }
+        
+        @Override
+        protected Optimizer getEffectiveOptimizer(Optimizer defaultOptimizer) {
+            // First get the base optimizer (with learning rate scaling if needed)
+            Optimizer baseOptimizer = super.getEffectiveOptimizer(defaultOptimizer);
+            
+            // If user didn't explicitly set an optimizer, apply embedding best practices
+            if (optimizer == null) {
+                // Automatically reduce/disable weight decay for embeddings
+                // This follows universal best practices in modern NLP
+                return baseOptimizer.forEmbeddings();
+            }
+            
+            // User explicitly set an optimizer - respect their choice
+            return baseOptimizer;
+        }
         
         @Override
         protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {

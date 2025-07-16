@@ -43,3 +43,5 @@ build/
 CLAUDE.md
 *.bin
 viz/
+*.neuron
+*.nn

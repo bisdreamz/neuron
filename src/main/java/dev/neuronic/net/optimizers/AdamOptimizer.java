@@ -8,8 +8,10 @@ import dev.neuronic.net.serialization.SerializationConstants;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Adam (Adaptive Moment Estimation) optimizer with self-adaptive learning rates.
@@ -72,6 +74,12 @@ public class AdamOptimizer implements Optimizer, Serializable {
     // Thread-safe state storage per layer (identified by weights reference)
     private final ConcurrentHashMap<Object, AdamState> layerStates = new ConcurrentHashMap<>();
     
+    // Separate state storage for 1D parameters (LayerNorm, etc.)
+    private final ConcurrentHashMap<Object, Adam1DState> param1DStates = new ConcurrentHashMap<>();
+    
+    // Global time step counter shared across all layers for correct bias correction
+    private final AtomicLong globalStep = new AtomicLong(0);
+    
     /**
      * Create Adam optimizer with default parameters.
      * 
@@ -129,8 +137,8 @@ public class AdamOptimizer implements Optimizer, Serializable {
         // Get or create state for this layer using the stable stateKey
         AdamState state = layerStates.computeIfAbsent(stateKey, k -> new AdamState(weights, biases));
 
-        // Increment time step atomically and capture the value
-        long currentTimeStep = state.timeStep.incrementAndGet();
+        // Increment global time step atomically and capture the value
+        long currentTimeStep = globalStep.incrementAndGet();
 
         // Check if we should parallelize
         if (executor != null && Parallelization.shouldParallelize(weights.length, executor)) {
@@ -225,6 +233,19 @@ public class AdamOptimizer implements Optimizer, Serializable {
     }
     
     /**
+     * Ensure buffers have adequate capacity for the given size.
+     * Reallocates with 25% headroom if needed to amortize growth.
+     */
+    private static float[][] ensureCapacity(float[][] oldBuf, int needed) {
+        if (oldBuf[0].length >= needed) return oldBuf;
+        // Reallocate with +25% headroom to amortize growth
+        int newLen = (int)(needed * 1.25) + 8;
+        for (int i = 0; i < oldBuf.length; i++)
+            oldBuf[i] = Arrays.copyOf(oldBuf[i], newLen);
+        return oldBuf;
+    }
+    
+    /**
      * Memory-optimized Adam update using reusable buffers.
      * Eliminates all temporary array allocations during optimization.
      * All operations are fully vectorized for maximum performance.
@@ -235,6 +256,9 @@ public class AdamOptimizer implements Optimizer, Serializable {
                                                               float[] momentum, float[] velocity,
                                                               float momentumCorrection, float velocityCorrection,
                                                               float[][] buffers) {
+        // Ensure buffers have adequate capacity for dynamic layer growth
+        buffers = ensureCapacity(buffers, params.length);
+        
         // Extract reusable buffers (no allocations!)
         float[] gradientSquared = buffers[0];
         float[] biascorrectedMomentum = buffers[1];
@@ -267,7 +291,6 @@ public class AdamOptimizer implements Optimizer, Serializable {
         final float[][] weightVelocity;    // v_t for weights  
         final float[] biasMomentum;        // m_t for biases
         final float[] biasVelocity;        // v_t for biases
-        final java.util.concurrent.atomic.AtomicLong timeStep = new java.util.concurrent.atomic.AtomicLong(0); // t (for bias correction)
         
         // Reusable buffers per weight row (ThreadLocal for thread safety)
         final ThreadLocal<float[][]> weightBuffers;
@@ -322,6 +345,32 @@ public class AdamOptimizer implements Optimizer, Serializable {
          */
         float[][] getBiasBuffers() {
             return biasBuffers.get();
+        }
+    }
+    
+    /**
+     * State storage for Adam optimizer for 1D parameters.
+     * Used for LayerNorm gamma/beta, bias-only layers, etc.
+     */
+    private static class Adam1DState {
+        final float[] momentum;           // m_t
+        final float[] velocity;           // v_t
+        
+        // Reusable buffers (ThreadLocal for thread safety)
+        final ThreadLocal<float[][]> buffers;
+        
+        Adam1DState(float[] parameters) {
+            // Initialize momentum and velocity to zeros
+            momentum = new float[parameters.length];
+            velocity = new float[parameters.length];
+            
+            // Initialize reusable buffers
+            buffers = ThreadLocal.withInitial(() -> new float[][] {
+                new float[parameters.length], // gradientSquared buffer
+                new float[parameters.length], // biascorrectedMomentum buffer
+                new float[parameters.length], // biascorrectedVelocity buffer
+                new float[parameters.length]  // sqrtVelocity buffer
+            });
         }
     }
     
@@ -394,6 +443,58 @@ public class AdamOptimizer implements Optimizer, Serializable {
     public void setLearningRate(float learningRate) {
         this.learningRate = learningRate;
     }
+    
+    @Override
+    public void optimize(float[] parameters, float[] gradients) {
+        optimize(parameters, parameters, gradients, null);
+    }
+    
+    @Override
+    public void optimize(float[] parameters, float[] gradients, ExecutorService executor) {
+        optimize(parameters, parameters, gradients, executor);
+    }
+    
+    /**
+     * Optimize 1D parameters with state management.
+     */
+    private void optimize(Object stateKey, float[] parameters, float[] gradients, ExecutorService executor) {
+        if (parameters.length != gradients.length)
+            throw new IllegalArgumentException("Parameter and gradient arrays must have same length");
+        
+        // Get or create state for this parameter array
+        Adam1DState state = param1DStates.computeIfAbsent(stateKey, 
+            k -> new Adam1DState(parameters));
+        
+        // Increment global timestep atomically
+        long currentTimeStep = globalStep.incrementAndGet();
+        
+        // Compute bias-corrected terms
+        float momentumCorrection = 1.0f - (float) Math.pow(beta1, currentTimeStep);
+        float velocityCorrection = 1.0f - (float) Math.pow(beta2, currentTimeStep);
+        
+        // Get thread-local buffers
+        float[][] buffers = state.buffers.get();
+        float[] gradientSquared = buffers[0];
+        float[] biascorrectedMomentum = buffers[1];
+        float[] biascorrectedVelocity = buffers[2];
+        float[] sqrtVelocity = buffers[3];
+        
+        // Update momentum and velocity, then parameters
+        // m_t = β₁ * m_{t-1} + (1 - β₁) * g_t
+        NetMath.exponentialMovingAverageInPlace(state.momentum, gradients, beta1);
+        
+        // v_t = β₂ * v_{t-1} + (1 - β₂) * g_t²
+        NetMath.elementwiseSquare(gradients, gradientSquared);
+        NetMath.exponentialMovingAverageInPlace(state.velocity, gradientSquared, beta2);
+        
+        // Apply bias correction
+        NetMath.elementwiseScale(state.momentum, 1.0f / momentumCorrection, biascorrectedMomentum);
+        NetMath.elementwiseScale(state.velocity, 1.0f / velocityCorrection, biascorrectedVelocity);
+        
+        // θ_t = θ_{t-1} - α * m̂_t / (√v̂_t + ε)
+        NetMath.elementwiseSqrtWithEpsilon(biascorrectedVelocity, epsilon, sqrtVelocity);
+        NetMath.fusedMultiplyDivideSubtract(parameters, biascorrectedMomentum, sqrtVelocity, learningRate);
+    }
 
     @Override
     public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
@@ -410,8 +511,8 @@ public class AdamOptimizer implements Optimizer, Serializable {
         // Get or create state for this layer using the stable stateKey.
         AdamState state = layerStates.computeIfAbsent(stateKey, k -> new AdamState(allWeights, new float[0]));
 
-        // Increment time step atomically
-        long currentTimeStep = state.timeStep.incrementAndGet();
+        // Increment global time step atomically
+        long currentTimeStep = globalStep.incrementAndGet();
 
         // Pre-compute bias correction factors
         float momentumCorrection = 1.0f - (float) Math.pow(beta1, currentTimeStep);
@@ -432,6 +533,13 @@ public class AdamOptimizer implements Optimizer, Serializable {
                                   "This likely means the stateKey is not being used correctly. Skipping update.\n",
                                   weightIndex, state.weightMomentum.length);
                 continue;
+            }
+            
+            // Validate gradient length matches weight row length
+            if (gradient.length != allWeights[weightIndex].length) {
+                throw new IllegalArgumentException(
+                    "Gradient length (" + gradient.length + ") does not match weight row length (" +
+                    allWeights[weightIndex].length + ") for index " + weightIndex);
             }
 
             // Perform the Adam update on the specific row

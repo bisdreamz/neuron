@@ -1,5 +1,6 @@
 package dev.neuronic.net.layers;
 
+import dev.neuronic.net.Shape;
 import dev.neuronic.net.math.FastRandom;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.serialization.Serializable;
@@ -248,6 +249,28 @@ public class DropoutLayer implements Layer, Serializable {
             return inputSize; // Dropout preserves input size
         }
         
+        @Override
+        public boolean prefersShapeAPI() {
+            return true; // Dropout benefits from shape preservation
+        }
+        
+        @Override
+        public Shape getOutputShape(Shape inputShape) {
+            // Dropout preserves the exact input shape
+            return inputShape;
+        }
+        
+        @Override
+        public void validateInputShape(Shape inputShape) {
+            // Dropout accepts any shape - no validation needed
+        }
+        
+        @Override
+        public Layer create(Shape inputShape, Optimizer defaultOptimizer, FastRandom random) {
+            // Create dropout layer with dynamic size (-1)
+            // The actual shape handling happens during forward pass
+            return new DropoutLayer(dropoutRate, -1, random);
+        }
         
         public Layer create(int inputSize, Optimizer defaultOptimizer) {
             throw new UnsupportedOperationException("Use create(inputSize, defaultOptimizer, random) instead");

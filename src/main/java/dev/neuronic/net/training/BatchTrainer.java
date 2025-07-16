@@ -30,7 +30,7 @@ public class BatchTrainer {
     // Configuration
     private final TrainingConfig config;
     private final List<TrainingCallback> callbacks = new ArrayList<>();
-    private final TrainingMetrics metrics = new TrainingMetrics();
+    private final TrainingMetrics metrics;
     
     // State
     private final AtomicBoolean stopRequested = new AtomicBoolean(false);
@@ -127,6 +127,12 @@ public class BatchTrainer {
         this.loss = loss;
         this.config = config;
         
+        // Create metrics with verbose disabled to avoid duplicate output
+        // Progress callbacks will handle all output
+        this.metrics = new TrainingMetrics(
+            new TrainingMetrics.Config().verbose(false)
+        );
+        
         // Create batch executor based on parallelBatches config
         int parallelism = config.parallelBatches > 0 ? 
                          config.parallelBatches : 
@@ -159,8 +165,10 @@ public class BatchTrainer {
     private void setupDefaultCallbacks() {
         // Progress reporting based on verbosity
         // Skip if a progress callback is already present (e.g., language model specific)
-        if (config.verbosity > 0 && !hasProgressCallback()) {
-            callbacks.add(new ProgressCallback(config.verbosity == 2, config.epochs));
+        if (config.verbosity > 0) {
+            if (!hasProgressCallback()) {
+                callbacks.add(new ProgressCallback(config.verbosity == 2, config.epochs));
+            }
         }
     }
     
@@ -437,7 +445,7 @@ public class BatchTrainer {
             
             if (isClassification(batchY[i])) {
                 int predicted = argmax(predictions[i]);
-                int actual = argmax(batchY[i]);
+                int actual = batchY[i].length == 1 ? (int) batchY[i][0] : argmax(batchY[i]);
                 if (predicted == actual) correct++;
             }
         }
@@ -477,7 +485,7 @@ public class BatchTrainer {
                 
                 if (isClassification(batchY[j])) {
                     int predicted = argmax(predictions[j]);
-                    int actual = argmax(batchY[j]);
+                    int actual = batchY[j].length == 1 ? (int) batchY[j][0] : argmax(batchY[j]);
                     if (predicted == actual) correct++;
                 }
             }
@@ -532,7 +540,7 @@ public class BatchTrainer {
                             
                             if (isClassification(batchY[j])) {
                                 int predicted = argmax(predictions[j]);
-                                int actual = argmax(batchY[j]);
+                                int actual = batchY[j].length == 1 ? (int) batchY[j][0] : argmax(batchY[j]);
                                 if (predicted == actual) batchCorrect++;
                             }
                         }
@@ -594,7 +602,14 @@ public class BatchTrainer {
     }
     
     private boolean isClassification(float[] target) {
-        // Simple heuristic: if target is one-hot encoded, it's classification
+        // Check for sparse target (single element with class index)
+        if (target.length == 1) {
+            // Sparse target - it's classification if it's a valid index
+            float idx = target[0];
+            return idx == Math.floor(idx) && idx >= 0;
+        }
+        
+        // Check for one-hot encoded target
         int ones = 0;
         for (float v : target) {
             if (v == 1.0f) ones++;

@@ -86,7 +86,19 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
      * Compute loss for this fused output layer.
      */
     public float computeLoss(float[] probabilities, float[] targets) {
-        return NetMath.lossComputeCrossEntropy(targets, probabilities);
+        // Check if this is a sparse target
+        if (targets.length == 1) {
+            int targetIndex = (int) targets[0];
+            if (targetIndex < 0 || targetIndex >= probabilities.length) {
+                throw new IllegalArgumentException(
+                    "Target index " + targetIndex + " out of bounds [0, " + probabilities.length + ")");
+            }
+            // Cross-entropy = -log(p[target])
+            return (float) -Math.log(probabilities[targetIndex] + 1e-7);
+        } else {
+            // Dense targets
+            return NetMath.lossComputeCrossEntropy(targets, probabilities);
+        }
     }
     
     @Override
@@ -97,8 +109,20 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
         float[] downstreamGradient = inputBufferPool.getBuffer();
         
         try {
-            // Fused gradient: softmax_output - targets (mathematically optimal)
-            NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+            // Check if this is a sparse target (single element with class index)
+            if (targets.length == 1) {
+                // Sparse cross-entropy: gradient = softmax_output with target class -= 1
+                int targetIndex = (int) targets[0];
+                if (targetIndex < 0 || targetIndex >= neurons) {
+                    throw new IllegalArgumentException(
+                        "Target index " + targetIndex + " out of bounds [0, " + neurons + ")");
+                }
+                System.arraycopy(context.outputs(), 0, gradients, 0, neurons);
+                gradients[targetIndex] -= 1.0f;
+            } else {
+                // Dense cross-entropy: gradient = softmax_output - one_hot_targets
+                NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+            }
             
             // Compute weight gradients using NetMath
             float[][] weightGradients = new float[inputs][neurons];
@@ -133,37 +157,39 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
     
     @Override
     public float[] computeGradientWithTargets(LayerContext[] stack, int stackIndex,
-                                            float[] targets, GradientConsumer gradientConsumer) {
+                                              float[] targets, GradientConsumer gradientConsumer) {
         LayerContext context = stack[stackIndex];
         
-        float[] gradients = neuronBufferPool.getBuffer();
-        float[] downstreamGradient = inputBufferPool.getBuffer();
-        
-        try {
-            // Fused gradient: softmax_output - targets (mathematically optimal)
-            NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
-            
-            // Compute weight gradients
-            float[][] weightGradients = new float[inputs][neurons];
-            NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradients, weightGradients);
-            
-            // Pass gradients to consumer if provided
-            if (gradientConsumer != null) {
-                gradientConsumer.accept(stackIndex, weightGradients, gradients);
+        // This is the fused gradient for Softmax + Cross-Entropy.
+        float[] predictions = context.outputs();
+        float[] gradient = new float[predictions.length];
+
+        if (targets.length == 1) {
+            // Sparse target (class index)
+            int trueClassIndex = (int) targets[0];
+            System.arraycopy(predictions, 0, gradient, 0, predictions.length);
+            if (trueClassIndex >= 0 && trueClassIndex < gradient.length) {
+                gradient[trueClassIndex] -= 1.0f;
             }
-            
-            // Compute downstream gradient
-            NetMath.matrixVectorMultiplyColumnMajor(weights, gradients, downstreamGradient);
-            
-            // Return a fresh copy
-            float[] result = new float[inputs];
-            System.arraycopy(downstreamGradient, 0, result, 0, inputs);
-            return result;
-            
-        } finally {
-            neuronBufferPool.releaseBuffer(gradients);
-            inputBufferPool.releaseBuffer(downstreamGradient);
+        } else {
+            // Dense target (one-hot encoded)
+            NetMath.elementwiseSubtract(predictions, targets, gradient);
         }
+
+        // Compute weight gradients for this layer
+        float[][] weightGradients = new float[inputs][neurons];
+        NetMath.matrixWeightGradientsColumnMajor(context.inputs(), gradient, weightGradients);
+        
+        // Pass gradients to consumer
+        if (gradientConsumer != null) {
+            gradientConsumer.accept(stackIndex, weightGradients, gradient);
+        }
+        
+        // Compute and return downstream gradient
+        float[] downstreamGradient = new float[inputs];
+        NetMath.matrixVectorMultiplyColumnMajor(weights, gradient, downstreamGradient);
+        
+        return downstreamGradient;
     }
     
     @Override
@@ -196,8 +222,20 @@ public class SoftmaxCrossEntropyOutput implements Layer, GradientAccumulator, Se
         float[] gradients = neuronBufferPool.getBuffer();
         
         try {
-            // Fused gradient: softmax_output - targets
-            NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+            // Check if this is a sparse target
+            if (targets.length == 1) {
+                // Sparse cross-entropy gradient
+                int targetIndex = (int) targets[0];
+                if (targetIndex < 0 || targetIndex >= neurons) {
+                    throw new IllegalArgumentException(
+                        "Target index " + targetIndex + " out of bounds [0, " + neurons + ")");
+                }
+                System.arraycopy(context.outputs(), 0, gradients, 0, neurons);
+                gradients[targetIndex] -= 1.0f;
+            } else {
+                // Dense cross-entropy gradient
+                NetMath.elementwiseSubtract(context.outputs(), targets, gradients);
+            }
             
             // Compute weight gradients using NetMath
             float[][] weightGradients = new float[inputs][neurons];

@@ -224,6 +224,24 @@ public abstract class BaseLayerSpec<T extends BaseLayerSpec<T>> implements Layer
             // Delegate to the wrapped optimizer
             wrapped.setLearningRate(learningRate);
         }
+        
+        @Override
+        public void optimize(float[] parameters, float[] gradients) {
+            // Scale gradients before passing to wrapped optimizer
+            scaleGradients(gradients, scale);
+            wrapped.optimize(parameters, gradients);
+            // Restore gradients
+            scaleGradients(gradients, 1.0f / scale);
+        }
+        
+        @Override
+        public void optimize(float[] parameters, float[] gradients, java.util.concurrent.ExecutorService executor) {
+            // Scale gradients
+            scaleGradients(gradients, scale);
+            wrapped.optimize(parameters, gradients, executor);
+            // Restore gradients
+            scaleGradients(gradients, 1.0f / scale);
+        }
 
         @Override
         public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,

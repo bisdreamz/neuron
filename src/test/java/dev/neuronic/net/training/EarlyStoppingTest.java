@@ -27,7 +27,7 @@ public class EarlyStoppingTest {
     @Test
     public void testEarlyStoppingActuallyStops() {
         // Create a simple neural network
-        AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.01f);
+        AdamWOptimizer optimizer = new AdamWOptimizer(0.01f, 0.01f); // Higher learning rate for faster convergence
         NeuralNet net = NeuralNet.newBuilder()
             .input(10)
             .setDefaultOptimizer(optimizer)

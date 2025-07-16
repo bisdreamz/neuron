@@ -154,12 +154,12 @@ public class ProgressCallback implements TrainingCallback {
             double trainPerplexity = Math.exp(metrics.getTrainingLoss());
             double valPerplexity = Math.exp(metrics.getValidationLoss());
             
-            System.out.printf("├─ Training:   loss: %.4f - acc: %.3f - perplexity: %.1f%n",
+            System.out.printf("├─ Training:   loss: %.4f - acc: %.4f - perplexity: %.1f%n",
                              metrics.getTrainingLoss(),
                              metrics.getTrainingAccuracy(),
                              trainPerplexity);
             
-            System.out.printf("├─ Validation: loss: %.4f - acc: %.3f - perplexity: %.1f%n",
+            System.out.printf("├─ Validation: loss: %.4f - acc: %.4f - perplexity: %.1f%n",
                              metrics.getValidationLoss(),
                              metrics.getValidationAccuracy(),
                              valPerplexity);

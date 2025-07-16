@@ -21,7 +21,8 @@ public class FusedAdamWUpdateScalarTest {
         long timeStep = 1;
 
         // Expected values (calculated manually based on PyTorch's implementation)
-        float[] expectedParams = {0.49401f, -0.19899f};
+        // With proper weight decay scaling: p = p * (1 - α * λ) = p * (1 - 0.001 * 0.01) = p * 0.99999
+        float[] expectedParams = {0.498995f, -0.200998f};
 
         // Run the scalar implementation
         FusedAdamWUpdate.computeScalar(params, gradients, momentum, velocity, beta1, beta2, learningRate, epsilon, weightDecay, 1.0f - beta1, 1.0f - beta2, true);

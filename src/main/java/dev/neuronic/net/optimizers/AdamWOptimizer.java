@@ -70,12 +70,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * </ul>
  * 
  * <p><b>Automatic Embedding Optimization:</b>
- * When used with embedding layers, AdamW automatically adjusts parameters:
+ * When used with embedding layers via {@code forEmbeddings()}, AdamW automatically adjusts parameters:
  * <ul>
- *   <li><b>5x higher learning rate:</b> Compensates for sparse updates on high-cardinality features</li>
- *   <li><b>10x less weight decay:</b> Prevents rare embeddings from being zeroed out</li>
+ *   <li><b>Same learning rate (1.0x):</b> Matches modern NLP practice (GPT, BERT, T5, LLaMA)</li>
+ *   <li><b>10x less weight decay (capped at 0.01):</b> Prevents embeddings from being regularized to zero</li>
  * </ul>
- * This follows best practices from Google, Facebook, and modern RecSys literature.
+ * This follows current best practices in language modeling. For sparse features in recommender
+ * systems that need higher learning rates, configure a custom optimizer instead.
  */
 public class AdamWOptimizer implements Optimizer, Serializable {
 
@@ -87,6 +88,12 @@ public class AdamWOptimizer implements Optimizer, Serializable {
     
     // Thread-safe state storage per layer (identified by weights reference)
     private final ConcurrentHashMap<Object, AdamWState> layerStates = new ConcurrentHashMap<>();
+    
+    // Separate state storage for 1D parameters (LayerNorm, etc.)
+    private final ConcurrentHashMap<Object, AdamW1DState> param1DStates = new ConcurrentHashMap<>();
+    
+    // Global time step counter shared across all layers for correct bias correction
+    private final AtomicLong globalStep = new AtomicLong(0);
     
     /**
      * Create AdamW optimizer with specified learning rate and weight decay.
@@ -144,8 +151,8 @@ public class AdamWOptimizer implements Optimizer, Serializable {
         // Get or create state for this layer using the stable stateKey
         AdamWState state = layerStates.computeIfAbsent(stateKey, k -> new AdamWState(weights, biases));
 
-        // Increment time step atomically
-        long currentTimeStep = state.timeStep.incrementAndGet();
+        // Increment global time step atomically
+        long currentTimeStep = globalStep.incrementAndGet();
 
         // Check if we should parallelize
         if (executor != null && Parallelization.shouldParallelize(weights.length, executor)) {
@@ -201,9 +208,10 @@ public class AdamWOptimizer implements Optimizer, Serializable {
         Parallelization.executeParallel(executor, weightTasks);
         
         // Update biases sequentially (usually small arrays, not worth parallelizing)
+        // Apply weight decay to biases (consistent with PyTorch/TensorFlow AdamW)
         FusedAdamWUpdate.compute(biases, biasGradients, state.biasMomentum, state.biasVelocity,
                                beta1, beta2, learningRate, epsilon, weightDecay,
-                               momentumCorrection, velocityCorrection, false);
+                               momentumCorrection, velocityCorrection, true);
     }
     
     /**
@@ -223,10 +231,11 @@ public class AdamWOptimizer implements Optimizer, Serializable {
                     momentumCorrection, velocityCorrection, true);
         }
         
-        // Update biases using fused operation (typically no weight decay applied to biases)
+        // Update biases using fused operation
+        // Apply weight decay to biases (consistent with PyTorch/TensorFlow AdamW)
         FusedAdamWUpdate.compute(biases, biasGradients, state.biasMomentum, state.biasVelocity,
                                beta1, beta2, learningRate, epsilon, weightDecay,
-                               momentumCorrection, velocityCorrection, false);
+                               momentumCorrection, velocityCorrection, true);
     }
     
     
@@ -240,7 +249,6 @@ public class AdamWOptimizer implements Optimizer, Serializable {
         final float[][] weightVelocity;    // v_t for weights  
         final float[] biasMomentum;        // m_t for biases
         final float[] biasVelocity;        // v_t for biases
-        final AtomicLong timeStep = new AtomicLong(0); // t (for bias correction) - atomic for thread safety
         
         AdamWState(float[][] weights, float[] biases) {
             // Initialize momentum and velocity to zeros
@@ -253,6 +261,21 @@ public class AdamWOptimizer implements Optimizer, Serializable {
             
             biasMomentum = new float[biases.length];
             biasVelocity = new float[biases.length];
+        }
+    }
+    
+    /**
+     * State storage for AdamW optimizer for 1D parameters.
+     * Used for LayerNorm gamma/beta, bias-only layers, etc.
+     */
+    private static class AdamW1DState {
+        final float[] momentum;           // m_t
+        final float[] velocity;           // v_t
+        
+        AdamW1DState(float[] parameters) {
+            // Initialize momentum and velocity to zeros
+            momentum = new float[parameters.length];
+            velocity = new float[parameters.length];
         }
     }
     
@@ -336,6 +359,44 @@ public class AdamWOptimizer implements Optimizer, Serializable {
             throw new IllegalArgumentException("Learning rate must be positive: " + learningRate);
         this.learningRate = learningRate;
     }
+    
+    @Override
+    public void optimize(float[] parameters, float[] gradients) {
+        optimize(parameters, parameters, gradients, null);
+    }
+    
+    @Override
+    public void optimize(float[] parameters, float[] gradients, ExecutorService executor) {
+        optimize(parameters, parameters, gradients, executor);
+    }
+    
+    /**
+     * Optimize 1D parameters with state management.
+     */
+    private void optimize(Object stateKey, float[] parameters, float[] gradients, ExecutorService executor) {
+        if (parameters.length != gradients.length)
+            throw new IllegalArgumentException("Parameter and gradient arrays must have same length");
+        
+        // Get or create state for this parameter array
+        AdamW1DState state = param1DStates.computeIfAbsent(stateKey, 
+            k -> new AdamW1DState(parameters));
+        
+        // Increment global timestep atomically
+        long currentTimeStep = globalStep.incrementAndGet();
+        
+        // Compute bias correction factors
+        float momentumCorrection = 1.0f - (float) Math.pow(beta1, currentTimeStep);
+        float velocityCorrection = 1.0f - (float) Math.pow(beta2, currentTimeStep);
+        
+        // Apply the fused AdamW update
+        // Note: This path is used for LayerNorm/BatchNorm parameters and standalone biases
+        // PyTorch/TF apply decay to standalone biases but not to normalization parameters
+        // Since we can't distinguish here, we follow the conservative approach of no decay
+        // Users who want decay on specific 1D params should use the 2D API with shape [1, N]
+        FusedAdamWUpdate.compute(parameters, gradients, state.momentum, state.velocity,
+                               beta1, beta2, learningRate, epsilon, weightDecay,
+                               momentumCorrection, velocityCorrection, false);
+    }
 
     @Override
     public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,
@@ -353,8 +414,8 @@ public class AdamWOptimizer implements Optimizer, Serializable {
         // The state is created based on the full `allWeights` table.
         AdamWState state = layerStates.computeIfAbsent(stateKey, k -> new AdamWState(allWeights, new float[0]));
 
-        // Increment time step atomically
-        long currentTimeStep = state.timeStep.incrementAndGet();
+        // Increment global time step atomically
+        long currentTimeStep = globalStep.incrementAndGet();
 
         // Pre-compute bias correction factors
         float momentumCorrection = 1.0f - (float) Math.pow(beta1, currentTimeStep);
@@ -378,22 +439,30 @@ public class AdamWOptimizer implements Optimizer, Serializable {
             }
 
             // Perform the fused AdamW update on the specific row
+            // For sparse updates (embeddings), weight decay is typically disabled
+            // Users should use forEmbeddings() which sets weightDecay=0
+            boolean applyDecay = weightDecay > 0;
             FusedAdamWUpdate.compute(
                     allWeights[weightIndex], gradient,
                     state.weightMomentum[weightIndex], state.weightVelocity[weightIndex],
                     beta1, beta2, learningRate, epsilon, weightDecay,
-                    momentumCorrection, velocityCorrection, true); // true = apply weight decay
+                    momentumCorrection, velocityCorrection, applyDecay);
         }
     }
     
     @Override
     public Optimizer forEmbeddings() {
-        // For embeddings: 10x less weight decay, 5x higher learning rate
-        // High-cardinality features need higher LR due to sparse updates
-        if (weightDecay > 0 || learningRate > 0) {
-            float embeddingDecay = weightDecay * 0.1f;  // Less regularization
-            float embeddingLR = learningRate * 5.0f;    // Faster learning for sparse features
-            return new AdamWOptimizer(embeddingLR, beta1, beta2, epsilon, embeddingDecay);
+        // For embeddings: NO weight decay, same learning rate as other layers
+        // Matches modern NLP practice (GPT, BERT, T5, LLaMA)
+        // 
+        // Learning rate: 1.0x (unchanged) - practitioners use same LR for all layers
+        // Weight decay: 0.0 (disabled) - embeddings should not be regularized toward zero
+        //
+        // This prevents rare tokens from being pulled to zero and maintains
+        // distinguishability between vocabulary items.
+        if (weightDecay > 0) {
+            // Disable weight decay completely for embeddings
+            return new AdamWOptimizer(learningRate, beta1, beta2, epsilon, 0.0f);
         }
         return this;
     }

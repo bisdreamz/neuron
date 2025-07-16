@@ -364,6 +364,103 @@ public final class NetMath {
         LeakyReLU.derivative(input, alpha, output);
     }
     
+    // ========== SAMPLING OPERATIONS ==========
+    
+    /**
+     * Apply temperature scaling to a probability distribution.
+     * Temperature < 1.0 makes the distribution sharper (more confident).
+     * Temperature > 1.0 makes the distribution flatter (more diverse).
+     * 
+     * @param probabilities input probability distribution (assumed to sum to 1)
+     * @param temperature temperature value (must be > 0)
+     * @param output temperature-scaled probabilities
+     */
+    public static void samplingTemperature(float[] probabilities, float temperature, float[] output) {
+        TemperatureScaling.apply(probabilities, temperature, output);
+    }
+    
+    /**
+     * Apply temperature scaling in-place.
+     */
+    public static void samplingTemperatureInPlace(float[] probabilities, float temperature) {
+        TemperatureScaling.applyInPlace(probabilities, temperature);
+    }
+    
+    /**
+     * Apply temperature scaling with excluded indices.
+     * Zeros out specified indices before applying temperature and renormalizing.
+     * 
+     * @param probabilities input probability distribution
+     * @param temperature temperature value (must be > 0)
+     * @param excludeIndices indices to exclude (e.g., UNK token)
+     * @param output temperature-scaled probabilities with exclusions
+     */
+    public static void samplingTemperatureWithExclusions(float[] probabilities, float temperature, 
+                                                         int[] excludeIndices, float[] output) {
+        TemperatureScaling.applyWithExclusions(probabilities, temperature, excludeIndices, output);
+    }
+    
+    /**
+     * Create a Top-K probability distribution.
+     * Keeps only the K highest probability indices, zeros out the rest, and renormalizes.
+     * 
+     * @param probabilities input probability distribution
+     * @param k number of top indices to keep
+     * @param output output distribution with only top K values
+     */
+    public static void samplingTopK(float[] probabilities, int k, float[] output) {
+        TopKSampling.apply(probabilities, k, output);
+    }
+    
+    /**
+     * Create a Top-K probability distribution with exclusions.
+     * 
+     * @param probabilities input probability distribution
+     * @param k number of top indices to keep
+     * @param excludeIndices indices to exclude from selection
+     * @param output output distribution with only top K non-excluded values
+     */
+    public static void samplingTopKWithExclusions(float[] probabilities, int k, 
+                                                  int[] excludeIndices, float[] output) {
+        TopKSampling.applyWithExclusions(probabilities, k, excludeIndices, output);
+    }
+    
+    /**
+     * Create a Top-P (nucleus) probability distribution.
+     * Keeps the smallest set of indices whose cumulative probability exceeds p.
+     * 
+     * @param probabilities input probability distribution
+     * @param p cumulative probability threshold (0.0 to 1.0)
+     * @param output output distribution with nucleus sampling applied
+     */
+    public static void samplingTopP(float[] probabilities, float p, float[] output) {
+        TopPSampling.apply(probabilities, p, output);
+    }
+    
+    /**
+     * Create a Top-P (nucleus) probability distribution with exclusions.
+     * 
+     * @param probabilities input probability distribution
+     * @param p cumulative probability threshold (0.0 to 1.0)
+     * @param excludeIndices indices to exclude from selection
+     * @param output output distribution with nucleus sampling applied
+     */
+    public static void samplingTopPWithExclusions(float[] probabilities, float p,
+                                                  int[] excludeIndices, float[] output) {
+        TopPSampling.applyWithExclusions(probabilities, p, excludeIndices, output);
+    }
+    
+    /**
+     * Sample an index from a probability distribution using cumulative sampling.
+     * 
+     * @param probabilities probability distribution (must sum to 1)
+     * @param randomValue random value in [0, 1)
+     * @return sampled index
+     */
+    public static int samplingDrawFromDistribution(float[] probabilities, float randomValue) {
+        return CumulativeSampling.sample(probabilities, randomValue);
+    }
+    
     // ========== BATCH OPERATIONS ==========
     
     /**

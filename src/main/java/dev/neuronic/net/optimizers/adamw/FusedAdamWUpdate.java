@@ -32,7 +32,6 @@ public final class FusedAdamWUpdate {
             
             float oneMinusBeta1 = 1.0f - beta1;
             float oneMinusBeta2 = 1.0f - beta2;
-            float oneMinusWeightDecay = 1.0f - weightDecay;
             
             for (int i = 0; i < params.length; i++) {
                 float grad = gradients[i];
@@ -50,9 +49,9 @@ public final class FusedAdamWUpdate {
                 // Parameter update: p = p - α * m̂ / (√v̂ + ε)
                 params[i] -= learningRate * mHat / (float)(Math.sqrt(vHat) + epsilon);
                 
-                // Weight decay: p = p * (1 - λ)
+                // Weight decay: p = p * (1 - α * λ)
                 if (applyWeightDecay) {
-                    params[i] *= oneMinusWeightDecay;
+                    params[i] *= (1.0f - learningRate * weightDecay);
                 }
             }
         }

@@ -103,6 +103,15 @@ public class SgdOptimizer implements Optimizer, Serializable {
     public void setLearningRate(float learningRate) {
         this.learningRate = learningRate;
     }
+    
+    @Override
+    public void optimize(float[] parameters, float[] gradients) {
+        if (parameters.length != gradients.length)
+            throw new IllegalArgumentException("Parameter and gradient arrays must have same length");
+        
+        // Hogwild! lock-free parameter updates - same approach as 2D
+        NetMath.parameterUpdate(parameters, gradients, learningRate);
+    }
 
     @Override
     public void sparseOptimize(Object stateKey, float[][] allWeights, int[] indicesToUpdate,

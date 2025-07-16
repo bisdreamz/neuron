@@ -45,6 +45,31 @@ import java.util.concurrent.ExecutorService;
  *   <li><b>Memory-efficient:</b> Shared embeddings for repeated tokens</li>
  * </ul>
  * 
+ * <p><b>IMPORTANT - Weight Decay Behavior:</b>
+ * This layer automatically disables weight decay for embeddings, following universal
+ * best practices in modern NLP (GPT, BERT, T5, LLaMA). Embedding parameters should
+ * not be regularized toward zero as this harms the model's ability to distinguish
+ * between tokens.
+ * 
+ * <p><b>To re-enable weight decay (rare):</b>
+ * <pre>{@code
+ * // If you need weight decay on embeddings (not recommended):
+ * Optimizer customOptimizer = new AdamWOptimizer(0.001f, 0.01f);
+ * NeuralNet net = NeuralNet.newBuilder()
+ *     .setDefaultOptimizer(new AdamWOptimizer(0.001f, 0.01f))
+ *     .layer(InputEmbeddingLayer.spec(vocabSize, embedDim, customOptimizer, 
+ *            WeightInitStrategy.XAVIER))  // Explicit optimizer
+ *     .build();
+ * }</pre>
+ * 
+ * <p><b>Why is weight decay disabled?</b>
+ * <ul>
+ *   <li>Prevents rare tokens from being regularized to zero</li>
+ *   <li>Maintains distinguishability between vocabulary items</li>
+ *   <li>Standard practice in all modern language models</li>
+ *   <li>Applies to advertising/RecSys sparse features too</li>
+ * </ul>
+ * 
  * <p><b>Example Usage:</b>
  * <pre>{@code
  * // Setup: 50,000 vocabulary (words/tokens), 512-dimensional embeddings
@@ -247,6 +272,21 @@ public class InputEmbeddingLayer implements Layer, Serializable {
             this.learningRateRatio = (float) learningRateRatio;
         }
         
+        @Override
+        protected Optimizer getEffectiveOptimizer(Optimizer defaultOptimizer) {
+            // First get the base optimizer (with learning rate scaling if needed)
+            Optimizer baseOptimizer = super.getEffectiveOptimizer(defaultOptimizer);
+            
+            // If user didn't explicitly set an optimizer, apply embedding best practices
+            if (optimizer == null) {
+                // Automatically reduce/disable weight decay for embeddings
+                // This follows universal best practices in modern NLP
+                return baseOptimizer.forEmbeddings();
+            }
+            
+            // User explicitly set an optimizer - respect their choice
+            return baseOptimizer;
+        }
         
         @Override
         protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {

@@ -44,7 +44,7 @@ public final class FusedAdamWUpdateVector implements FusedAdamWUpdate.Impl {
         FloatVector epsilonV = FloatVector.broadcast(species, epsilon);
         FloatVector momentumCorrectionV = FloatVector.broadcast(species, momentumCorrection);
         FloatVector velocityCorrectionV = FloatVector.broadcast(species, velocityCorrection);
-        FloatVector oneMinusWeightDecayV = FloatVector.broadcast(species, 1.0f - weightDecay);
+        FloatVector oneMinusWeightDecayV = FloatVector.broadcast(species, 1.0f - learningRate * weightDecay);
         
         int i = 0;
         for (; i < upper; i += species.length()) {
@@ -71,7 +71,7 @@ public final class FusedAdamWUpdateVector implements FusedAdamWUpdate.Impl {
             FloatVector sqrtVHatV = vHatV.sqrt().add(epsilonV);
             paramV = paramV.sub(learningRateV.mul(mHatV).div(sqrtVHatV));
             
-            // Weight decay: p = p * (1 - λ)
+            // Weight decay: p = p * (1 - α * λ)
             if (applyWeightDecay) {
                 paramV = paramV.mul(oneMinusWeightDecayV);
             }
@@ -98,7 +98,7 @@ public final class FusedAdamWUpdateVector implements FusedAdamWUpdate.Impl {
             
             // Weight decay
             if (applyWeightDecay) {
-                params[i] *= (1.0f - weightDecay);
+                params[i] *= (1.0f - learningRate * weightDecay);
             }
         }
     }
@@ -110,7 +110,7 @@ public final class FusedAdamWUpdateVector implements FusedAdamWUpdate.Impl {
         
         float oneMinusBeta1 = 1.0f - beta1;
         float oneMinusBeta2 = 1.0f - beta2;
-        float oneMinusWeightDecay = 1.0f - weightDecay;
+        float oneMinusWeightDecay = 1.0f - learningRate * weightDecay;
         
         for (int i = 0; i < params.length; i++) {
             float grad = gradients[i];

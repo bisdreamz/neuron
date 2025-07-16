@@ -21,6 +21,30 @@ import java.util.concurrent.ExecutorService;
  * 
  * <p>This trades perfect disambiguation for unlimited scale and zero
  * vocabulary management overhead.
+ * 
+ * <p><b>IMPORTANT - Weight Decay Behavior:</b>
+ * This layer automatically disables weight decay for embeddings, following universal
+ * best practices in modern NLP (GPT, BERT, T5, LLaMA). Embedding parameters should
+ * not be regularized toward zero as this harms the model's ability to distinguish
+ * between hashed features.
+ * 
+ * <p><b>To re-enable weight decay (rare):</b>
+ * <pre>{@code
+ * // If you need weight decay on embeddings (not recommended):
+ * Optimizer customOptimizer = new AdamWOptimizer(0.001f, 0.01f);
+ * NeuralNet net = NeuralNet.newBuilder()
+ *     .setDefaultOptimizer(new AdamWOptimizer(0.001f, 0.01f))
+ *     .layer(HashedEmbeddingLayer.spec(hashBuckets, embedDim, customOptimizer))  // Explicit optimizer
+ *     .build();
+ * }</pre>
+ * 
+ * <p><b>Why is weight decay disabled?</b>
+ * <ul>
+ *   <li>Prevents rare features from being regularized to zero</li>
+ *   <li>Maintains distinguishability between hashed values</li>
+ *   <li>Standard practice in all modern language models</li>
+ *   <li>Critical for advertising/RecSys sparse features</li>
+ * </ul>
  */
 public class HashedEmbeddingLayer implements Layer {
     
@@ -194,31 +218,35 @@ public class HashedEmbeddingLayer implements Layer {
     /**
      * Layer specification for building hashed embedding layers.
      */
-    public static class Spec implements Layer.Spec {
+    public static class Spec extends BaseLayerSpec<Spec> {
         private final int hashBuckets;
-        private final int embeddingDim;
         private final int numHashes;
-        private final Optimizer optimizer;
         
         public Spec(int hashBuckets, int embeddingDim, int numHashes, Optimizer optimizer) {
+            super(embeddingDim, optimizer);
             this.hashBuckets = hashBuckets;
-            this.embeddingDim = embeddingDim;
             this.numHashes = numHashes;
-            this.optimizer = optimizer;
-        }
-        
-        
-        public Layer create(int inputSize, Optimizer defaultOptimizer, FastRandom random) {
-            Optimizer opt = optimizer != null ? optimizer : defaultOptimizer;
-            if (opt == null) {
-                throw new IllegalStateException("No optimizer provided for hashed embedding layer");
-            }
-            return new HashedEmbeddingLayer(hashBuckets, embeddingDim, numHashes, opt, random);
         }
         
         @Override
-        public int getOutputSize() {
-            return embeddingDim;
+        protected Optimizer getEffectiveOptimizer(Optimizer defaultOptimizer) {
+            // First get the base optimizer (with learning rate scaling if needed)
+            Optimizer baseOptimizer = super.getEffectiveOptimizer(defaultOptimizer);
+            
+            // If user didn't explicitly set an optimizer, apply embedding best practices
+            if (optimizer == null) {
+                // Automatically reduce/disable weight decay for embeddings
+                // This follows universal best practices in modern NLP
+                return baseOptimizer.forEmbeddings();
+            }
+            
+            // User explicitly set an optimizer - respect their choice
+            return baseOptimizer;
+        }
+        
+        @Override
+        protected Layer createLayer(int inputSize, Optimizer effectiveOptimizer, FastRandom random) {
+            return new HashedEmbeddingLayer(hashBuckets, outputSize, numHashes, effectiveOptimizer, random);
         }
     }
 }

@@ -41,7 +41,7 @@ public class SimpleLanguageModelTest {
         SimpleNetLanguageModel model = SimpleNet.ofLanguageModel(
             NeuralNet.newBuilder()
                 .input(3)
-                .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f)) // Higher LR, no weight decay
+                .setDefaultOptimizer(new AdamWOptimizer(0.01f, 0.0f)) // Higher LR, no weight decay
                 .withSeed(12345L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(3, 10, 16)) // Larger embedding
                 .layer(Layers.hiddenDenseRelu(32)) // Dense layers work better for simple patterns
@@ -193,7 +193,7 @@ public class SimpleLanguageModelTest {
         SimpleNetLanguageModel model = SimpleNet.ofLanguageModel(
             NeuralNet.newBuilder()
                 .input(3)
-                .setDefaultOptimizer(new AdamWOptimizer(0.1f, 0.0f)) // No weight decay
+                .setDefaultOptimizer(new AdamWOptimizer(0.01f, 0.0f)) // Lower learning rate
                 .withSeed(12345L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(3, 10, 16))
                 .layer(Layers.hiddenDenseRelu(32))
@@ -203,8 +203,8 @@ public class SimpleLanguageModelTest {
         
         // Train
         SimpleNetTrainingConfig config = SimpleNetTrainingConfig.builder()
-            .batchSize(20)
-            .epochs(50)
+            .batchSize(10)  // Smaller batch size for better convergence
+            .epochs(100)     // More epochs
             .shuffle(false)
             .verbosity(0)
             .build();

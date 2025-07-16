@@ -8,7 +8,6 @@ import dev.neuronic.net.repl.LanguageModelREPL;
 import dev.neuronic.net.simple.SimpleNet;
 import dev.neuronic.net.simple.SimpleNetLanguageModel;
 import dev.neuronic.net.simple.SimpleNetTrainingConfig;
-import dev.neuronic.net.training.LearningRateSchedule;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,14 +25,14 @@ public class TinyShakespeareLanguageExample {
 
     public static void main(String[] args) throws Exception {
         // hyperparams
-        final int MAX_VOCAB_SZ   = 5_000;
-        final int MAX_TOKENS     = 200_000;
-        final int WINDOW_SIZE    = 20;
-        final int EMBEDDING_SIZE = 32;
+        final int MAX_VOCAB_SZ   = 10_000;
+        final int MAX_TOKENS     = 500_000;
+        final int WINDOW_SIZE    = 50;
+        final int EMBEDDING_SIZE = 64;
         final int HIDDEN_SIZE    = 128;
         final int BATCH_SIZE     = 128;
-        final int EPOCHS         = 5;
-        final float LEARNING_RATE = 0.000003f;
+        final int EPOCHS         = 20;
+        final float LEARNING_RATE = 0.0003f;
 
         // 1) load up to MAX_TOKENS tokens from our tiny file
         String[] tokens = new String[MAX_TOKENS];
@@ -48,8 +47,12 @@ public class TinyShakespeareLanguageExample {
                                 new AdamWOptimizer(LEARNING_RATE, 0.00001f)
                         )
                         .layer(Layers.inputSequenceEmbedding(WINDOW_SIZE, MAX_VOCAB_SZ, EMBEDDING_SIZE))
+                        .layer(Layers.hiddenGruAll(HIDDEN_SIZE))
+                        //.layer(Layers.dropout(0.05f))
                         .layer(Layers.hiddenGruLast(HIDDEN_SIZE))
+                        //.layer(Layers.dropout(0.05f))
                         .layer(Layers.hiddenDenseRelu(HIDDEN_SIZE))
+                        .layer(Layers.dropout(0.05f))
                         .output(Layers.outputSoftmaxCrossEntropy(MAX_VOCAB_SZ))
         );
 
@@ -69,7 +72,7 @@ public class TinyShakespeareLanguageExample {
                 .epochs(EPOCHS)
                 .shuffle(true)
                 .verbosity(2)
-                //.withLearningRateSchedule(LearningRateSchedule.exponentialDecay(LEARNING_RATE, 0.01f))
+                //.withLearningRateSchedule(LearningRateSchedule.(LEARNING_RATE, 0.01f))
                 .validationSplit(0.2f)
                 //.withEarlyStopping(3)
                 // .globalGradientClipNorm(1.0f)
@@ -79,8 +82,10 @@ public class TinyShakespeareLanguageExample {
         lm.trainBulk(inputs, labels, config).printSummary();
 
         // 6) drop into REPL
-        lm.setSamplingConfig(SamplingConfig.temperature(0.95f));
-        LanguageModelREPL.start(lm);
+        lm.setSamplingConfig(SamplingConfig.temperature(0.7f));
+        lm.save(Path.of("tinyshakespeare.neuron"));
+
+        LanguageModelREPL.start(lm, false);
     }
 
     private static void loadTokens(int maxTokens, String[] tokens) throws Exception {

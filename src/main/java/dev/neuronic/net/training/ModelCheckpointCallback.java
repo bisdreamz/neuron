@@ -1,6 +1,7 @@
 package dev.neuronic.net.training;
 
 import dev.neuronic.net.NeuralNet;
+import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.training.TrainingMetrics.EpochMetrics;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -162,7 +163,10 @@ public class ModelCheckpointCallback implements TrainingCallback {
     /**
      * Enhanced version that can actually save the model.
      * Requires model reference to be passed during construction.
+     * 
+     * @deprecated Use WithSerializableModel instead for better type support
      */
+    @Deprecated
     public static class WithModel extends ModelCheckpointCallback {
         private final NeuralNet model;
         
@@ -180,6 +184,61 @@ public class ModelCheckpointCallback implements TrainingCallback {
         @Override
         protected void saveModel(String filename, TrainingMetrics metrics) throws IOException {
             model.save(Paths.get(filename));
+        }
+    }
+    
+    /**
+     * Generic version that can save any Serializable model type.
+     * This supports SimpleNetLanguageModel, SimpleNetClassifier, etc.
+     * 
+     * @param <T> the model type (must be Serializable)
+     */
+    public static class WithSerializableModel<T extends Serializable> extends ModelCheckpointCallback {
+        private final T model;
+        private final ModelSaver<T> saver;
+        
+        /**
+         * Interface for saving models. This allows flexibility in how models are saved.
+         */
+        public interface ModelSaver<T> {
+            void save(T model, Path path) throws IOException;
+        }
+        
+        /**
+         * Default saver using the Serializable interface.
+         */
+        private static class DefaultModelSaver<T extends Serializable> implements ModelSaver<T> {
+            @Override
+            public void save(T model, Path path) throws IOException {
+                // Use the Serializable save method via reflection to avoid circular dependencies
+                try {
+                    var saveMethod = model.getClass().getMethod("save", Path.class);
+                    saveMethod.invoke(model, path);
+                } catch (Exception e) {
+                    throw new IOException("Failed to save model: " + e.getMessage(), e);
+                }
+            }
+        }
+        
+        public WithSerializableModel(T model, String filepath) {
+            this(model, filepath, "val_accuracy", true, 0);
+        }
+        
+        public WithSerializableModel(T model, String filepath, String monitor, 
+                                   boolean saveOnlyBest, int saveFrequency) {
+            this(model, filepath, monitor, saveOnlyBest, saveFrequency, new DefaultModelSaver<>());
+        }
+        
+        public WithSerializableModel(T model, String filepath, String monitor, 
+                                   boolean saveOnlyBest, int saveFrequency, ModelSaver<T> saver) {
+            super(filepath, monitor, saveOnlyBest, saveFrequency);
+            this.model = model;
+            this.saver = saver;
+        }
+        
+        @Override
+        protected void saveModel(String filename, TrainingMetrics metrics) throws IOException {
+            saver.save(model, Paths.get(filename));
         }
     }
 }

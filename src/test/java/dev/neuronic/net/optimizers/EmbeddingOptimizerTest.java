@@ -10,7 +10,8 @@ public class EmbeddingOptimizerTest {
     
     @Test
     void testAdamWForEmbeddings() {
-        // AdamW with weight decay should create a new optimizer with reduced decay and higher LR
+        // AdamW with weight decay should create a new optimizer with NO decay for embeddings
+        // This matches modern NLP practice (GPT, BERT, T5, LLaMA)
         AdamWOptimizer adamW = new AdamWOptimizer(0.001f, 0.01f);
         Optimizer embeddingOpt = adamW.forEmbeddings();
         
@@ -18,22 +19,19 @@ public class EmbeddingOptimizerTest {
         assertTrue(embeddingOpt instanceof AdamWOptimizer, "Should return AdamW optimizer");
         
         AdamWOptimizer embeddingAdamW = (AdamWOptimizer) embeddingOpt;
-        assertEquals(0.005f, embeddingAdamW.getLearningRate(), 1e-7f, "Learning rate should be 5x higher");
-        assertEquals(0.001f, embeddingAdamW.getWeightDecay(), 1e-7f, "Weight decay should be 10x less");
+        assertEquals(0.001f, embeddingAdamW.getLearningRate(), 1e-7f, "Learning rate should remain the same");
+        assertEquals(0.0f, embeddingAdamW.getWeightDecay(), 1e-7f, "Weight decay should be zero for embeddings");
     }
     
     @Test
     void testAdamWWithZeroDecay() {
-        // AdamW with zero weight decay should still create new optimizer due to LR change
+        // AdamW with zero weight decay should return same optimizer (no changes needed)
         AdamWOptimizer adamW = new AdamWOptimizer(0.001f, 0.0f);
         Optimizer embeddingOpt = adamW.forEmbeddings();
         
-        assertNotSame(adamW, embeddingOpt, "Should create new optimizer due to LR change");
-        assertTrue(embeddingOpt instanceof AdamWOptimizer, "Should return AdamW optimizer");
-        
-        AdamWOptimizer embeddingAdamW = (AdamWOptimizer) embeddingOpt;
-        assertEquals(0.005f, embeddingAdamW.getLearningRate(), 1e-7f, "Learning rate should be 5x higher");
-        assertEquals(0.0f, embeddingAdamW.getWeightDecay(), 1e-7f, "Weight decay should remain zero");
+        assertSame(adamW, embeddingOpt, "Should return same optimizer when weight decay is already zero");
+        assertEquals(0.001f, adamW.getLearningRate(), 1e-7f, "Learning rate should remain unchanged");
+        assertEquals(0.0f, adamW.getWeightDecay(), 1e-7f, "Weight decay should remain zero");
     }
     
     @Test

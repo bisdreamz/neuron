@@ -65,6 +65,55 @@ public interface Optimizer {
     }
     
     /**
+     * Update 1D parameters using their gradients.
+     * 
+     * <p>This method supports optimization of 1D parameter arrays such as LayerNorm
+     * gamma/beta, bias-only layers, or other vector parameters that don't fit the
+     * traditional weight matrix + bias vector pattern.
+     * 
+     * <p><b>Thread Safety:</b> This method MUST be thread-safe. Multiple threads
+     * may call this method concurrently during parallel training.
+     *
+     * @param parameters the 1D parameters to update
+     * @param gradients the gradients w.r.t. parameters
+     */
+    default void optimize(float[] parameters, float[] gradients) {
+        // Default implementation: treat as bias update using existing optimize method
+        // This maintains backward compatibility while allowing optimizers to override
+        // with more efficient implementations
+        float[][] dummyWeights = new float[0][0];
+        float[][] dummyWeightGrads = new float[0][0];
+        optimize(dummyWeights, parameters, dummyWeightGrads, gradients);
+    }
+    
+    /**
+     * Update 1D parameters using their gradients with optional executor for internal parallelism.
+     * 
+     * <p><b>Thread Safety:</b> This method MUST be thread-safe. Multiple threads
+     * may call this method concurrently during parallel training.
+     *
+     * @param parameters the 1D parameters to update
+     * @param gradients the gradients w.r.t. parameters
+     * @param executor optional executor service for internal parallelism
+     */
+    default void optimize(float[] parameters, float[] gradients, ExecutorService executor) {
+        if (executor == null) {
+            optimize(parameters, gradients);
+            return;
+        }
+        
+        // Smart default: submit to executor and wait for completion
+        try {
+            executor.submit(() -> {
+                optimize(parameters, gradients);
+                return null;
+            }).get();
+        } catch (Exception e) {
+            throw new RuntimeException("Parallel optimization failed", e);
+        }
+    }
+    
+    /**
      * Update weights and biases using a stable key for stateful optimizers.
      * This is crucial for layers like embeddings where the weight/gradient arrays
      * may be temporary or represent a subset of the full parameter set.

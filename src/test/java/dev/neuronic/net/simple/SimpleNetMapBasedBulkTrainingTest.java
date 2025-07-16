@@ -383,8 +383,8 @@ class SimpleNetMapBasedBulkTrainingTest {
             .epochs(1)
             .build();
         
-        // Should throw UnsupportedOperationException
-        assertThrows(UnsupportedOperationException.class, () -> {
+        // Should throw IllegalArgumentException (not UnsupportedOperationException)
+        assertThrows(IllegalArgumentException.class, () -> {
             lm.trainBulk(mapInputs, targets, config);
         });
     }

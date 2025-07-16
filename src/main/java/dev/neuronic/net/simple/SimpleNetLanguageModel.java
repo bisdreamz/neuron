@@ -5,6 +5,7 @@ import dev.neuronic.net.SamplingConfig;
 import dev.neuronic.net.layers.InputSequenceEmbeddingLayer;
 import dev.neuronic.net.layers.Layer;
 import dev.neuronic.net.losses.CrossEntropyLoss;
+import dev.neuronic.net.losses.SparseCrossEntropyLoss;
 import dev.neuronic.net.losses.Loss;
 import dev.neuronic.net.serialization.SerializationConstants;
 import dev.neuronic.net.training.BatchTrainer;
@@ -143,115 +144,15 @@ public class SimpleNetLanguageModel extends SimpleNet<String> {
         // Tokenize input sequence
         float[] tokenIds = tokenizeSequence(sequence);
         
-        // Create target (one-hot vector for next word)
+        // Create sparse target (just the token index)
         int targetTokenId = embeddingLayer.getTokenId(nextWord);
-        float[] target = createOneHotTarget(targetTokenId);
+        float[] target = new float[]{(float)targetTokenId};
         
         // Train
         underlyingNet.train(tokenIds, target);
     }
     
-    /**
-     * Train the model with multiple sequences using bulk training.
-     * 
-     * @param sequences list of input sequences
-     * @param nextWords list of next words (parallel to sequences)
-     * @param config training configuration
-     * @return training result with metrics
-     */
-    public SimpleNetTrainingResult trainBulkSequences(List<String[]> sequences, List<String> nextWords,
-                                           SimpleNetTrainingConfig config) {
-        return trainBulkSequences(sequences, nextWords, config, null);
-    }
     
-    /**
-     * Train the model with multiple sequences using bulk training with custom callbacks.
-     * 
-     * @param sequences list of input sequences
-     * @param nextWords list of next words (parallel to sequences)
-     * @param config training configuration
-     * @param customCallbacks additional callbacks to use during training
-     * @return training result with metrics
-     */
-    public SimpleNetTrainingResult trainBulkSequences(List<String[]> sequences, List<String> nextWords,
-                                           SimpleNetTrainingConfig config,
-                                           List<TrainingCallback> customCallbacks) {
-        if (sequences.size() != nextWords.size()) {
-            throw new IllegalArgumentException("Sequences and nextWords must have same size");
-        }
-        
-        // Ensure padding token is in vocabulary
-        ensurePaddingInitialized();
-        
-        // Tokenize all sequences (potentially in parallel)
-        float[][] tokenizedInputs = tokenizeSequencesBulk(sequences);
-        float[][] encodedTargets = new float[nextWords.size()][];
-        
-        // Encode targets
-        for (int i = 0; i < nextWords.size(); i++) {
-            int targetTokenId = embeddingLayer.getTokenId(nextWords.get(i));
-            encodedTargets[i] = createOneHotTarget(targetTokenId);
-        }
-        
-        // Create BatchTrainer first so we can access its stop flag
-        BatchTrainer trainer = new BatchTrainer(underlyingNet, CrossEntropyLoss.INSTANCE, config.getBatchConfig());
-        
-        // Build callbacks list
-        List<TrainingCallback> callbacks = new ArrayList<>();
-        
-        if (config.isEarlyStoppingEnabled()) {
-            // For language models, monitor val_loss instead of val_accuracy
-            callbacks.add(new EarlyStoppingCallback(
-                config.getEarlyStoppingPatience(),
-                config.getEarlyStoppingMinDelta(),
-                trainer.getStopFlag(),  // Use trainer's stop flag
-                "val_loss",            // Monitor validation loss for language models
-                false                   // Don't restore best weights
-            ));
-        }
-        
-        if (config.isCheckpointingEnabled()) {
-            callbacks.add(new ModelCheckpointCallback.WithModel(
-                underlyingNet,
-                config.getCheckpointPath(),
-                "val_accuracy",
-                config.isCheckpointOnlyBest(),
-                0
-            ));
-        }
-        
-        if (config.isVisualizationEnabled()) {
-            callbacks.add(new VisualizationCallback(config.getVisualizationPath()));
-        }
-        
-        // Add custom callbacks if provided
-        if (customCallbacks != null)
-            callbacks.addAll(customCallbacks);
-        
-        // Train using BatchTrainer directly
-        long startTime = System.currentTimeMillis();
-        
-        // Add language model specific progress callback if verbosity is enabled
-        if (config.getBatchConfig().verbosity > 0) {
-            boolean detailed = config.getBatchConfig().verbosity == 2;
-            trainer.withCallback(ProgressCallback.forLanguageModel(detailed));
-        }
-        
-        // Add all callbacks
-        for (TrainingCallback callback : callbacks) {
-            trainer.withCallback(callback);
-        }
-        
-        BatchTrainer.TrainingResult batchResult = trainer.fit(
-            tokenizedInputs, encodedTargets);
-        long trainingTime = System.currentTimeMillis() - startTime;
-        
-        return new SimpleNetTrainingResult(
-            batchResult,
-            trainingTime,
-            batchResult.getMetrics().getEpochCount()
-        );
-    }
     
     /**
      * Train the model with pre-split train and validation data.
@@ -292,7 +193,7 @@ public class SimpleNetLanguageModel extends SimpleNet<String> {
         
         for (int i = 0; i < trainNextWords.size(); i++) {
             int targetTokenId = embeddingLayer.getTokenId(trainNextWords.get(i));
-            trainTargets[i] = createOneHotTarget(targetTokenId);
+            trainTargets[i] = new float[]{(float)targetTokenId};
         }
         
         // Tokenize validation data if provided
@@ -305,52 +206,28 @@ public class SimpleNetLanguageModel extends SimpleNet<String> {
             
             for (int i = 0; i < valNextWords.size(); i++) {
                 int targetTokenId = embeddingLayer.getTokenId(valNextWords.get(i));
-                valTargets[i] = createOneHotTarget(targetTokenId);
+                valTargets[i] = new float[]{(float)targetTokenId};
             }
         }
         
         // Create BatchTrainer first so we can access its stop flag
-        BatchTrainer trainer = new BatchTrainer(underlyingNet, CrossEntropyLoss.INSTANCE, config.getBatchConfig());
+        BatchTrainer trainer = new BatchTrainer(underlyingNet, getLossFunction(), config.getBatchConfig());
         
-        // Build callbacks
-        List<TrainingCallback> callbacks = new ArrayList<>();
-        
-        if (config.isEarlyStoppingEnabled()) {
-            // For language models, monitor val_loss instead of val_accuracy
-            callbacks.add(new EarlyStoppingCallback(
-                config.getEarlyStoppingPatience(),
-                config.getEarlyStoppingMinDelta(),
-                trainer.getStopFlag(),  // Use trainer's stop flag
-                "val_loss",            // Monitor validation loss for language models
-                false                   // Don't restore best weights
-            ));
+        // Add language model specific progress callback FIRST before other callbacks
+        // This prevents BatchTrainer from adding the default non-language-model callback
+        if (config.getBatchConfig().verbosity > 0) {
+            boolean detailed = config.getBatchConfig().verbosity == 2;
+            trainer.withCallback(new ProgressCallback(detailed, true, config.getBatchConfig().epochs));
         }
         
-        if (config.isCheckpointingEnabled()) {
-            callbacks.add(new ModelCheckpointCallback.WithModel(
-                underlyingNet,
-                config.getCheckpointPath(),
-                "val_accuracy",
-                config.isCheckpointOnlyBest(),
-                0
-            ));
-        }
-        
-        if (config.isVisualizationEnabled()) {
-            callbacks.add(new VisualizationCallback(config.getVisualizationPath()));
-        }
+        // Build callbacks using the overridden buildCallbacks method
+        List<TrainingCallback> callbacks = buildCallbacks(config, trainer);
         
         if (customCallbacks != null)
             callbacks.addAll(customCallbacks);
         
         // Train using BatchTrainer directly with pre-split data
         long startTime = System.currentTimeMillis();
-        
-        // Add language model specific progress callback if verbosity is enabled
-        if (config.getBatchConfig().verbosity > 0) {
-            boolean detailed = config.getBatchConfig().verbosity == 2;
-            trainer.withCallback(ProgressCallback.forLanguageModel(detailed));
-        }
         
         // Add all callbacks
         for (TrainingCallback callback : callbacks) {
@@ -518,6 +395,36 @@ public class SimpleNetLanguageModel extends SimpleNet<String> {
         return embeddingLayer.hasWord(word);
     }
     
+    /**
+     * Get the token ID for a word.
+     * 
+     * @param word the word to look up
+     * @return token ID (may be UNK token ID if word not in vocabulary)
+     */
+    public int getTokenId(String word) {
+        return embeddingLayer.getTokenId(word);
+    }
+    
+    /**
+     * Get the word for a token ID.
+     * 
+     * @param tokenId the token ID
+     * @return the word (or UNK if invalid ID)
+     */
+    public String getWord(int tokenId) {
+        return embeddingLayer.getWord(tokenId);
+    }
+    
+    /**
+     * Get the underlying neural network (for advanced use cases).
+     * 
+     * @return the underlying NeuralNet
+     */
+    public NeuralNet getUnderlyingNet() {
+        return underlyingNet;
+    }
+    
+    
     
     // ===============================
     // PRIVATE HELPER METHODS
@@ -585,20 +492,6 @@ public class SimpleNetLanguageModel extends SimpleNet<String> {
         return tokenized;
     }
     
-    private float[] createOneHotTarget(int tokenId) {
-        Layer outputLayer = underlyingNet.getOutputLayer();
-        float[] target = new float[outputLayer.getOutputSize()];
-        
-        // Ensure token ID is within bounds
-        if (tokenId >= 0 && tokenId < target.length) {
-            target[tokenId] = 1.0f;
-        } else {
-            // Default to UNK token
-            target[0] = 1.0f;
-        }
-        
-        return target;
-    }
     
     private int[] getTopKIndices(float[] values, int k) {
         // Create index-value pairs
@@ -813,23 +706,74 @@ public class SimpleNetLanguageModel extends SimpleNet<String> {
         
         Object firstInput = inputs.get(0);
         
-        if (firstInput instanceof String[]) {
-            // This is the expected input type for language models
-            // Cast is safe because we checked the type
-            @SuppressWarnings("unchecked")
-            List<String[]> sequences = (List<String[]>) inputs;
-            return trainBulkSequences(sequences, targets, config);
-        } else {
-            throw new UnsupportedOperationException(
-                "Language models require String[] inputs. Got: " + 
-                firstInput.getClass().getSimpleName() + 
-                ". Use String[] sequences for language model training.");
+        if (!(firstInput instanceof String[])) {
+            throw new IllegalArgumentException(
+                "Language models require List<String[]> inputs. Got: List<" + 
+                firstInput.getClass().getSimpleName() + ">. " +
+                "Each element should be a String array representing a sequence.");
         }
+        
+        if (inputs.size() != targets.size()) {
+            throw new IllegalArgumentException("Sequences and nextWords must have same size");
+        }
+        
+        // Cast is safe because we checked the type
+        @SuppressWarnings("unchecked")
+        List<String[]> sequences = (List<String[]>) inputs;
+        
+        // Ensure padding token is in vocabulary
+        ensurePaddingInitialized();
+        
+        // Tokenize all sequences (potentially in parallel)
+        float[][] tokenizedInputs = tokenizeSequencesBulk(sequences);
+        float[][] encodedTargets = new float[targets.size()][];
+        
+        // Encode targets as sparse indices (memory-efficient for large vocabularies)
+        for (int i = 0; i < targets.size(); i++) {
+            int targetTokenId = embeddingLayer.getTokenId(targets.get(i));
+            encodedTargets[i] = new float[]{(float)targetTokenId};
+        }
+        
+        return trainWithEncodedData(tokenizedInputs, encodedTargets, config);
     }
     
     @Override
     protected Loss getLossFunction() {
-        return CrossEntropyLoss.INSTANCE;
+        return SparseCrossEntropyLoss.INSTANCE;
+    }
+    
+    @Override
+    protected List<TrainingCallback> buildCallbacks(SimpleNetTrainingConfig config, BatchTrainer trainer) {
+        List<TrainingCallback> callbacks = new ArrayList<>();
+        
+        // Add language model specific progress callback FIRST
+        if (config.getBatchConfig().verbosity > 0) {
+            boolean detailed = config.getBatchConfig().verbosity == 2;
+            callbacks.add(new ProgressCallback(detailed, true, config.getBatchConfig().epochs));
+        }
+        
+        // Add early stopping for language models (monitoring val_loss)
+        if (config.isEarlyStoppingEnabled()) {
+            // Use a practical minDelta for language models to avoid training when improvements are negligible
+            // 0.001 means we need at least 0.1% relative improvement to continue
+            float languageModelMinDelta = Math.max(config.getEarlyStoppingMinDelta(), 0.001f);
+            callbacks.add(new EarlyStoppingCallback(
+                config.getEarlyStoppingPatience(),
+                languageModelMinDelta,
+                trainer.getStopFlag(),
+                "val_loss",  // Monitor validation loss for language models
+                false
+            ));
+        }
+        
+        // Add other callbacks from base class EXCEPT early stopping
+        for (TrainingCallback callback : super.buildCallbacks(config, trainer)) {
+            if (!(callback instanceof EarlyStoppingCallback)) {
+                callbacks.add(callback);
+            }
+        }
+        
+        return callbacks;
     }
     
     @Override
@@ -856,11 +800,11 @@ public class SimpleNetLanguageModel extends SimpleNet<String> {
         // Ensure padding token is in vocabulary
         ensurePaddingInitialized();
         
-        // Convert string targets to one-hot encoded vectors
+        // Convert string targets to sparse indices
         float[][] encoded = new float[targets.size()][];
         for (int i = 0; i < targets.size(); i++) {
             int tokenId = embeddingLayer.getTokenId(targets.get(i));
-            encoded[i] = createOneHotTarget(tokenId);
+            encoded[i] = new float[]{(float)tokenId};
         }
         return encoded;
     }

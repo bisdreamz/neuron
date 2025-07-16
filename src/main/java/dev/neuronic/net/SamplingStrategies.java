@@ -2,6 +2,7 @@ package dev.neuronic.net;
 
 import dev.neuronic.net.common.Utils;
 import dev.neuronic.net.math.FastRandom;
+import dev.neuronic.net.math.NetMath;
 
 /**
  * Sampling strategies for language model generation.
@@ -20,8 +21,7 @@ import dev.neuronic.net.math.FastRandom;
  */
 public final class SamplingStrategies {
 
-    private SamplingStrategies() {
-    } // Utility class
+    private SamplingStrategies() {} // Utility class
 
     /**
      * Sample using argmax (always pick highest probability).
@@ -43,40 +43,59 @@ public final class SamplingStrategies {
      * @return sampled token index
      */
     public static int sampleWithTemperature(float[] probabilities, float temperature, FastRandom random) {
+        return sampleWithTemperature(probabilities, temperature, null, random);
+    }
+    
+    /**
+     * Sample with temperature scaling, excluding specified indices.
+     *
+     * @param probabilities softmax output probabilities
+     * @param temperature   controls randomness (0.1=focused, 1.0=normal, 2.0=creative)
+     * @param excludeIndices indices to exclude from sampling (can be null)
+     * @param random       FastRandom instance for sampling
+     * @return sampled token index
+     */
+    public static int sampleWithTemperature(float[] probabilities, float temperature, 
+                                          int[] excludeIndices, FastRandom random) {
         if (temperature <= 0)
             throw new IllegalArgumentException("Temperature must be positive, got: " + temperature);
 
-        // For very low temperature, just use argmax
-        if (temperature < 0.01f)
-            return argmax(probabilities);
-
-        // Convert probabilities to logits, apply temperature, then resample
-        float[] logits = new float[probabilities.length];
-        for (int i = 0; i < probabilities.length; i++) {
-            if (probabilities[i] > 0) {
-                logits[i] = (float) Math.log(probabilities[i]) / temperature;
+        // For very low temperature, just use argmax (with exclusions)
+        if (temperature < 0.01f) {
+            if (excludeIndices == null || excludeIndices.length == 0) {
+                return argmax(probabilities);
             } else {
-                logits[i] = -1e10f / temperature;
+                // Find argmax excluding specified indices
+                int bestIdx = -1;
+                float bestProb = -1;
+                boolean[] excluded = new boolean[probabilities.length];
+                for (int idx : excludeIndices) {
+                    if (idx >= 0 && idx < excluded.length) {
+                        excluded[idx] = true;
+                    }
+                }
+                for (int i = 0; i < probabilities.length; i++) {
+                    if (!excluded[i] && probabilities[i] > bestProb) {
+                        bestProb = probabilities[i];
+                        bestIdx = i;
+                    }
+                }
+                if (bestIdx == -1) {
+                    throw new IllegalArgumentException("All indices are excluded");
+                }
+                return bestIdx;
             }
         }
 
-        // Apply softmax to get new probabilities
-        float maxLogit = Float.NEGATIVE_INFINITY;
-        for (float logit : logits) {
-            maxLogit = Math.max(maxLogit, logit);
+        // Apply temperature scaling
+        float[] scaledProbs = new float[probabilities.length];
+        if (excludeIndices == null || excludeIndices.length == 0) {
+            NetMath.samplingTemperature(probabilities, temperature, scaledProbs);
+        } else {
+            NetMath.samplingTemperatureWithExclusions(probabilities, temperature, excludeIndices, scaledProbs);
         }
 
-        float sumExp = 0;
-        for (int i = 0; i < logits.length; i++) {
-            logits[i] = (float) Math.exp(logits[i] - maxLogit);
-            sumExp += logits[i];
-        }
-
-        for (int i = 0; i < logits.length; i++) {
-            logits[i] /= sumExp;
-        }
-
-        return sampleFromDistribution(logits, random);
+        return sampleFromDistribution(scaledProbs, random);
     }
 
     /**
@@ -89,41 +108,39 @@ public final class SamplingStrategies {
      * @return sampled token index
      */
     public static int sampleTopK(float[] probabilities, int k, float temperature, FastRandom random) {
+        return sampleTopK(probabilities, k, temperature, null, random);
+    }
+    
+    /**
+     * Sample from top-K tokens, excluding specified indices.
+     *
+     * @param probabilities softmax output probabilities
+     * @param k             number of top tokens to consider
+     * @param temperature   optional temperature scaling (1.0 = no scaling)
+     * @param excludeIndices indices to exclude from sampling (can be null)
+     * @param random       FastRandom instance for sampling
+     * @return sampled token index
+     */
+    public static int sampleTopK(float[] probabilities, int k, float temperature, 
+                                int[] excludeIndices, FastRandom random) {
         if (k <= 0 || k > probabilities.length) {
             throw new IllegalArgumentException("K must be between 1 and vocab size, got: " + k);
         }
 
-        // Find top K indices
-        Integer[] indices = new Integer[probabilities.length];
-        for (int i = 0; i < indices.length; i++) {
-            indices[i] = i;
-        }
-
-        // Partial sort to get top K
-        java.util.Arrays.sort(indices, 0, Math.min(k + 1, indices.length),
-                (a, b) -> Float.compare(probabilities[b], probabilities[a]));
-
-        // Create distribution with only top K
+        // Apply Top-K filtering
         float[] topKProbs = new float[probabilities.length];
-        float sum = 0;
-        for (int i = 0; i < k && i < indices.length; i++) {
-            topKProbs[indices[i]] = probabilities[indices[i]];
-            sum += probabilities[indices[i]];
-        }
-
-        // Renormalize
-        if (sum > 0) {
-            for (int i = 0; i < topKProbs.length; i++) {
-                topKProbs[i] /= sum;
-            }
+        if (excludeIndices == null || excludeIndices.length == 0) {
+            NetMath.samplingTopK(probabilities, k, topKProbs);
+        } else {
+            NetMath.samplingTopKWithExclusions(probabilities, k, excludeIndices, topKProbs);
         }
 
         // Apply temperature if needed
         if (Math.abs(temperature - 1.0f) > 1e-6f) {
-            return sampleWithTemperature(topKProbs, temperature, random);
-        } else {
-            return sampleFromDistribution(topKProbs, random);
+            NetMath.samplingTemperatureInPlace(topKProbs, temperature);
         }
+
+        return sampleFromDistribution(topKProbs, random);
     }
 
     /**
@@ -136,49 +153,39 @@ public final class SamplingStrategies {
      * @return sampled token index
      */
     public static int sampleTopP(float[] probabilities, float p, float temperature, FastRandom random) {
+        return sampleTopP(probabilities, p, temperature, null, random);
+    }
+    
+    /**
+     * Sample from nucleus (top-P), excluding specified indices.
+     *
+     * @param probabilities softmax output probabilities
+     * @param p             cumulative probability threshold (e.g., 0.9)
+     * @param temperature   optional temperature scaling
+     * @param excludeIndices indices to exclude from sampling (can be null)
+     * @param random       FastRandom instance for sampling
+     * @return sampled token index
+     */
+    public static int sampleTopP(float[] probabilities, float p, float temperature,
+                                int[] excludeIndices, FastRandom random) {
         if (p <= 0 || p > 1) {
             throw new IllegalArgumentException("P must be between 0 and 1, got: " + p);
         }
 
-        // Sort indices by probability
-        Integer[] indices = new Integer[probabilities.length];
-        for (int i = 0; i < indices.length; i++) {
-            indices[i] = i;
-        }
-        java.util.Arrays.sort(indices, (a, b) -> Float.compare(probabilities[b], probabilities[a]));
-
-        // Find nucleus
-        float cumSum = 0;
-        int nucleusSize = 0;
-        for (int i = 0; i < indices.length; i++) {
-            cumSum += probabilities[indices[i]];
-            nucleusSize++;
-            if (cumSum >= p) {
-                break;
-            }
-        }
-
-        // Create distribution with only nucleus tokens
-        float[] nucleusProbs = new float[probabilities.length];
-        float sum = 0;
-        for (int i = 0; i < nucleusSize; i++) {
-            nucleusProbs[indices[i]] = probabilities[indices[i]];
-            sum += probabilities[indices[i]];
-        }
-
-        // Renormalize
-        if (sum > 0) {
-            for (int i = 0; i < nucleusProbs.length; i++) {
-                nucleusProbs[i] /= sum;
-            }
+        // Apply Top-P filtering
+        float[] topPProbs = new float[probabilities.length];
+        if (excludeIndices == null || excludeIndices.length == 0) {
+            NetMath.samplingTopP(probabilities, p, topPProbs);
+        } else {
+            NetMath.samplingTopPWithExclusions(probabilities, p, excludeIndices, topPProbs);
         }
 
         // Apply temperature if needed
         if (Math.abs(temperature - 1.0f) > 1e-6f) {
-            return sampleWithTemperature(nucleusProbs, temperature, random);
-        } else {
-            return sampleFromDistribution(nucleusProbs, random);
+            NetMath.samplingTemperatureInPlace(topPProbs, temperature);
         }
+
+        return sampleFromDistribution(topPProbs, random);
     }
 
     /**
@@ -186,17 +193,6 @@ public final class SamplingStrategies {
      */
     private static int sampleFromDistribution(float[] probabilities, FastRandom random) {
         float randomValue = random.nextFloat();
-        float cumSum = 0;
-
-        for (int i = 0; i < probabilities.length; i++) {
-            cumSum += probabilities[i];
-
-            if (randomValue < cumSum) {
-                return i;
-            }
-        }
-
-        // Fallback to last index
-        return probabilities.length - 1;
+        return NetMath.samplingDrawFromDistribution(probabilities, randomValue);
     }
 }

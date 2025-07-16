@@ -71,8 +71,8 @@ class AdamWOptimizerTest {
         assertTrue(weights[0][0] < originalWeight, "Weight should decrease due to weight decay");
         assertTrue(weights[0][1] < 2.0f, "Weight should decrease due to weight decay");
         
-        // Biases should be unchanged (no weight decay applied to biases)
-        assertEquals(originalBias, biases[0], 1e-6f, "Biases should not be affected by weight decay");
+        // Biases should also decay in AdamW (matching PyTorch/TensorFlow behavior)
+        assertTrue(biases[0] < originalBias, "Biases should also be affected by weight decay in AdamW");
     }
 
     @Test
@@ -154,8 +154,8 @@ class AdamWOptimizerTest {
     }
 
     @Test
-    void testWeightDecayOnlyOnWeights() {
-        AdamWOptimizer optimizer = new AdamWOptimizer(1e-10f, 0.1f); // Very small learning rate, test weight decay effect
+    void testWeightDecayAppliedToBothWeightsAndBiases() {
+        AdamWOptimizer optimizer = new AdamWOptimizer(0.001f, 0.1f); // Small learning rate to see weight decay effect
         
         float originalWeight = weights[0][0];
         float originalBias = biases[0];
@@ -166,11 +166,9 @@ class AdamWOptimizerTest {
         
         optimizer.optimize(weights, biases, zeroGradients, zeroBiasGradients);
         
-        // Weights should decay
+        // Both weights and biases should decay (matching PyTorch/TensorFlow AdamW)
         assertTrue(weights[0][0] < originalWeight, "Weights should decay");
-        
-        // Biases should remain unchanged
-        assertEquals(originalBias, biases[0], 1e-6f, "Biases should not decay");
+        assertTrue(biases[0] < originalBias, "Biases should also decay in AdamW");
     }
 
     @Test

@@ -8,8 +8,10 @@ import dev.neuronic.net.outputs.SoftmaxCrossEntropyOutput;
 import dev.neuronic.net.outputs.RegressionOutput;
 import dev.neuronic.net.serialization.Serializable;
 import dev.neuronic.net.losses.Loss;
+import dev.neuronic.net.common.Utils;
 import dev.neuronic.net.training.BatchTrainer;
 import dev.neuronic.net.training.TrainingCallback;
+import dev.neuronic.net.training.TrainingMetrics;
 import dev.neuronic.net.training.EarlyStoppingCallback;
 import dev.neuronic.net.training.ModelCheckpointCallback;
 import dev.neuronic.net.training.VisualizationCallback;
@@ -499,6 +501,253 @@ public abstract class SimpleNet<T> implements Serializable {
     // ===============================
     
     /**
+     * Train on streaming data from an iterator with separate validation data.
+     * This allows training on datasets larger than memory with full metrics support.
+     * 
+     * <p><b>Example - Stream training data with validation:</b>
+     * <pre>{@code
+     * // Training iterator from large file
+     * DataIterator<String[], String> trainData = DataIterator.fromFile(
+     *     "train_data.txt", 
+     *     line -> {
+     *         String[] parts = line.split("\t");
+     *         return DataBatch.single(
+     *             Arrays.copyOf(parts, parts.length - 1),
+     *             parts[parts.length - 1]
+     *         );
+     *     }
+     * );
+     * 
+     * // Validation data (can be in-memory since usually smaller)
+     * List<String[]> valSequences = loadValidationSequences();
+     * List<String> valTargets = loadValidationTargets();
+     * 
+     * // Train with full metrics
+     * model.trainBulk(trainData, valSequences, valTargets, config);
+     * }</pre>
+     * 
+     * @param trainIterator iterator providing training data batches
+     * @param valInputs validation inputs (can be null for no validation)
+     * @param valTargets validation targets (can be null for no validation)
+     * @param config training configuration
+     * @return training result with full metrics
+     */
+    public SimpleNetTrainingResult trainBulk(DataIterator<?, T> trainIterator,
+                                           List<?> valInputs, List<T> valTargets,
+                                           SimpleNetTrainingConfig config) {
+        // Encode validation data once
+        float[][] encodedValInputs = null;
+        float[][] encodedValTargets = null;
+        
+        if (valInputs != null && valTargets != null) {
+            if (valInputs.size() != valTargets.size()) {
+                throw new IllegalArgumentException(
+                    "Validation inputs and targets must have same size");
+            }
+            
+            encodedValInputs = new float[valInputs.size()][];
+            for (int i = 0; i < valInputs.size(); i++) {
+                Object input = valInputs.get(i);
+                if (input instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> mapInput = (Map<String, Object>) input;
+                    encodedValInputs[i] = convertFromMap(mapInput);
+                } else if (input instanceof float[]) {
+                    encodedValInputs[i] = convertFromFloatArray((float[]) input);
+                } else {
+                    throw new IllegalArgumentException(
+                        "Unsupported validation input type: " + input.getClass().getSimpleName());
+                }
+            }
+            
+            encodedValTargets = encodeTargets(valTargets);
+        }
+        
+        // Create BatchTrainer with appropriate loss function
+        BatchTrainer trainer = new BatchTrainer(
+            underlyingNet, 
+            getLossFunction(),
+            config.getBatchConfig()
+        );
+        
+        // Build callbacks
+        List<TrainingCallback> callbacks = buildCallbacks(config, trainer);
+        for (TrainingCallback callback : callbacks) {
+            trainer.withCallback(callback);
+        }
+        
+        // Prepare for training
+        long startTimeNanos = System.nanoTime();
+        int epochs = config.getBatchConfig().epochs;
+        TrainingMetrics metrics = new TrainingMetrics();
+        
+        try (trainIterator) {
+            // Training loop - each full pass through iterator is one epoch
+            for (int epoch = 0; epoch < epochs; epoch++) {
+                // Reset iterator for new epoch (except first)
+                if (epoch > 0) {
+                    trainIterator.reset();
+                }
+                
+                // Track epoch metrics
+                double epochLoss = 0;
+                double epochAccuracy = 0;
+                int epochSamples = 0;
+                
+                // Process all training data in this epoch
+                while (trainIterator.hasNext()) {
+                    // Get next batch
+                    DataBatch<?, T> batch = trainIterator.nextBatch(config.getBatchConfig().batchSize);
+                    
+                    // Convert and encode batch
+                    float[][] batchInputs = new float[batch.size()][];
+                    for (int i = 0; i < batch.size(); i++) {
+                        Object input = batch.getInputs()[i];
+                        if (input instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> mapInput = (Map<String, Object>) input;
+                            batchInputs[i] = convertFromMap(mapInput);
+                        } else if (input instanceof float[]) {
+                            batchInputs[i] = convertFromFloatArray((float[]) input);
+                        } else {
+                            throw new IllegalArgumentException(
+                                "Unsupported input type: " + input.getClass().getSimpleName());
+                        }
+                    }
+                    
+                    // Encode targets from batch
+                    @SuppressWarnings("unchecked")
+                    T[] targetsArray = (T[]) batch.getTargets();
+                    List<T> targetsList = Arrays.asList(targetsArray);
+                    float[][] batchTargets = encodeTargets(targetsList);
+                    
+                    // Train this batch and collect metrics
+                    underlyingNet.trainBatch(batchInputs, batchTargets);
+                    
+                    // Calculate batch metrics for tracking
+                    // Note: This adds overhead but provides proper metrics
+                    Loss loss = getLossFunction();
+                    for (int i = 0; i < batchInputs.length; i++) {
+                        float[] prediction = underlyingNet.predict(batchInputs[i]);
+                        epochLoss += loss.loss(prediction, batchTargets[i]);
+                        
+                        // For classification tasks
+                        int predictedClass = Utils.argmax(prediction);
+                        int actualClass = Utils.argmax(batchTargets[i]);
+                        if (predictedClass == actualClass) {
+                            epochAccuracy += 1.0;
+                        }
+                    }
+                    
+                    epochSamples += batch.size();
+                }
+                
+                // Evaluate on validation set if provided
+                double valLoss = 0;
+                double valAccuracy = 0;
+                if (encodedValInputs != null) {
+                    // Run validation
+                    for (int i = 0; i < encodedValInputs.length; i++) {
+                        float[] prediction = underlyingNet.predict(encodedValInputs[i]);
+                        
+                        // Calculate loss for this sample
+                        Loss loss = getLossFunction();
+                        valLoss += loss.loss(prediction, encodedValTargets[i]);
+                        
+                        // Calculate accuracy (for classification)
+                        int predictedClass = Utils.argmax(prediction);
+                        int actualClass = Utils.argmax(encodedValTargets[i]);
+                        if (predictedClass == actualClass) {
+                            valAccuracy += 1.0;
+                        }
+                    }
+                    valLoss /= encodedValInputs.length;
+                    valAccuracy /= encodedValInputs.length;
+                }
+                
+                // Record epoch metrics
+                metrics.recordEpoch(
+                    epoch + 1,  // 1-based epoch number
+                    epochLoss / epochSamples,  // average training loss
+                    epochAccuracy / epochSamples,  // average training accuracy  
+                    valLoss,
+                    valAccuracy,
+                    epochSamples  // samples seen in this epoch
+                );
+                
+                // Notify callbacks about epoch completion
+                for (TrainingCallback callback : callbacks) {
+                    callback.onEpochEnd(epoch + 1, metrics);
+                }
+                
+                // Check if training should stop (early stopping, etc.)
+                if (trainer.getStopFlag().get()) {
+                    break;
+                }
+            }
+        } catch (UnsupportedOperationException e) {
+            throw new IllegalArgumentException(
+                "Iterator does not support reset() - required for multi-epoch training. " +
+                "Use a single epoch or provide an iterator with reset support.", e);
+        } catch (Exception e) {
+            throw new RuntimeException("Error during iterator-based training", e);
+        }
+        
+        long trainingTimeNanos = System.nanoTime() - startTimeNanos;
+        long trainingTimeMs = trainingTimeNanos / 1_000_000;
+        
+        // Create result with collected metrics
+        BatchTrainer.TrainingResult batchResult = new BatchTrainer.TrainingResult(
+            metrics,
+            trainer
+        );
+        
+        return new SimpleNetTrainingResult(
+            batchResult,
+            trainingTimeMs,
+            epochs
+        );
+    }
+    
+    /**
+     * Train on streaming data from an iterator.
+     * Uses automatic validation split from the iterator data.
+     * Note: This requires loading data to perform the split, so may not be suitable
+     * for truly massive datasets.
+     * 
+     * @param dataIterator iterator providing training data batches
+     * @param config training configuration (validationSplit will be applied)
+     * @return training result with metrics
+     */
+    public SimpleNetTrainingResult trainBulk(DataIterator<?, T> dataIterator,
+                                            SimpleNetTrainingConfig config) {
+        // When no validation data provided, collect all data for standard training
+        // This ensures proper metrics and validation split handling
+        List<Object> allInputs = new ArrayList<>();
+        List<T> allTargets = new ArrayList<>();
+        
+        try (dataIterator) {
+            while (dataIterator.hasNext()) {
+                DataBatch<?, T> batch = dataIterator.nextBatch(config.getBatchConfig().batchSize);
+                
+                for (int i = 0; i < batch.size(); i++) {
+                    allInputs.add(batch.getInputs()[i]);
+                    allTargets.add(batch.getTargets()[i]);
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error loading data from iterator", e);
+        }
+        
+        if (allInputs.isEmpty()) {
+            return new SimpleNetTrainingResult(null, 0, 0);
+        }
+        
+        // Use standard training with collected data
+        return trainBulk(allInputs, allTargets, config);
+    }
+    
+    /**
      * Train on a batch of samples.
      * This method handles both Map-based inputs (for mixed feature models) and 
      * array-based inputs (for simple models).
@@ -662,8 +911,9 @@ public abstract class SimpleNet<T> implements Serializable {
         
         if (config.isCheckpointingEnabled()) {
             String monitorMetric = getCheckpointMonitorMetric();
-            callbacks.add(new ModelCheckpointCallback.WithModel(
-                underlyingNet,
+            // Use the new generic checkpoint callback to save the full model type
+            callbacks.add(new ModelCheckpointCallback.WithSerializableModel<>(
+                this,  // Save the full SimpleNet subclass, not just the NeuralNet
                 config.getCheckpointPath(),
                 monitorMetric,
                 config.isCheckpointOnlyBest(),
