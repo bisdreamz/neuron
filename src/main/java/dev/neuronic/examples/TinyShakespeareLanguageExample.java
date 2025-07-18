@@ -26,10 +26,10 @@ public class TinyShakespeareLanguageExample {
     public static void main(String[] args) throws Exception {
         // hyperparams
         final int MAX_VOCAB_SZ   = 10_000;
-        final int MAX_TOKENS     = 500_000;
+        final int MAX_TOKENS     = 50_000;
         final int WINDOW_SIZE    = 50;
-        final int EMBEDDING_SIZE = 64;
-        final int HIDDEN_SIZE    = 128;
+        final int EMBEDDING_SIZE = 32;
+        final int HIDDEN_SIZE    = 64;
         final int BATCH_SIZE     = 128;
         final int EPOCHS         = 20;
         final float LEARNING_RATE = 0.0003f;
@@ -47,11 +47,11 @@ public class TinyShakespeareLanguageExample {
                                 new AdamWOptimizer(LEARNING_RATE, 0.00001f)
                         )
                         .layer(Layers.inputSequenceEmbedding(WINDOW_SIZE, MAX_VOCAB_SZ, EMBEDDING_SIZE))
-                        .layer(Layers.hiddenGruAll(HIDDEN_SIZE))
+                        //.layer(Layers.hiddenGruAll(HIDDEN_SIZE))
                         //.layer(Layers.dropout(0.05f))
                         .layer(Layers.hiddenGruLast(HIDDEN_SIZE))
                         //.layer(Layers.dropout(0.05f))
-                        .layer(Layers.hiddenDenseRelu(HIDDEN_SIZE))
+                        //.layer(Layers.hiddenDenseRelu(HIDDEN_SIZE))
                         .layer(Layers.dropout(0.05f))
                         .output(Layers.outputSoftmaxCrossEntropy(MAX_VOCAB_SZ))
         );

@@ -1006,9 +1006,19 @@ public class GruLayer implements Layer, Serializable {
         
         @Override
         public void validateInputShape(Shape inputShape) {
-            if (inputShape.rank() != 2 && inputShape.rank() != 1) {
+            if (inputShape.rank() == 1) {
+                // Check if this is likely from inputMixed
                 throw new IllegalArgumentException(
-                    "GRU expects 2D input [sequenceLength, features] or 1D flattened input, got shape: " + inputShape);
+                    "GRU layer cannot process non-sequence input (shape: " + inputShape + ").\n" +
+                    "GRU requires 2D input: [sequenceLength, features]\n\n" +
+                    "For time series data, use:\n" +
+                    "  - Layers.inputSequenceNumerical(30, Feature.autoScale()) for numerical sequences\n" +
+                    "  - Layers.inputSequenceEmbedding(...) for token/word sequences\n\n" +
+                    "Note: Layers.inputMixed() creates feature vectors, not sequences.");
+            }
+            if (inputShape.rank() != 2) {
+                throw new IllegalArgumentException(
+                    "GRU layer expects 2D input [sequenceLength, features], got shape: " + inputShape);
             }
         }
         
@@ -1083,9 +1093,19 @@ public class GruLayer implements Layer, Serializable {
         
         @Override
         public void validateInputShape(Shape inputShape) {
-            if (inputShape.rank() != 2 && inputShape.rank() != 1) {
+            if (inputShape.rank() == 1) {
+                // Check if this is likely from inputMixed
                 throw new IllegalArgumentException(
-                    "GRU expects 2D input [sequenceLength, features] or 1D flattened input, got shape: " + inputShape);
+                    "GRU layer cannot process non-sequence input (shape: " + inputShape + ").\n" +
+                    "GRU requires 2D input: [sequenceLength, features]\n\n" +
+                    "For time series data, use:\n" +
+                    "  - Layers.inputSequenceNumerical(30, Feature.autoScale()) for numerical sequences\n" +
+                    "  - Layers.inputSequenceEmbedding(...) for token/word sequences\n\n" +
+                    "Note: Layers.inputMixed() creates feature vectors, not sequences.");
+            }
+            if (inputShape.rank() != 2) {
+                throw new IllegalArgumentException(
+                    "GRU layer expects 2D input [sequenceLength, features], got shape: " + inputShape);
             }
         }
         
@@ -1191,9 +1211,19 @@ public class GruLayer implements Layer, Serializable {
         
         @Override
         public void validateInputShape(Shape inputShape) {
-            if (inputShape.rank() != 2 && inputShape.rank() != 1) {
+            if (inputShape.rank() == 1) {
+                // Check if this is likely from inputMixed
                 throw new IllegalArgumentException(
-                    "GRU expects 2D input [sequenceLength, features] or 1D flattened input, got shape: " + inputShape);
+                    "GRU layer cannot process non-sequence input (shape: " + inputShape + ").\n" +
+                    "GRU requires 2D input: [sequenceLength, features]\n\n" +
+                    "For time series data, use:\n" +
+                    "  - Layers.inputSequenceNumerical(30, Feature.autoScale()) for numerical sequences\n" +
+                    "  - Layers.inputSequenceEmbedding(...) for token/word sequences\n\n" +
+                    "Note: Layers.inputMixed() creates feature vectors, not sequences.");
+            }
+            if (inputShape.rank() != 2) {
+                throw new IllegalArgumentException(
+                    "GRU layer expects 2D input [sequenceLength, features], got shape: " + inputShape);
             }
         }
         
@@ -1706,9 +1736,19 @@ public class GruLayer implements Layer, Serializable {
         
         @Override
         public void validateInputShape(Shape inputShape) {
-            if (inputShape.rank() != 2 && inputShape.rank() != 1) {
+            if (inputShape.rank() == 1) {
+                // Check if this is likely from inputMixed
                 throw new IllegalArgumentException(
-                    "GRU expects 2D input [sequenceLength, features] or 1D flattened input, got shape: " + inputShape);
+                    "GRU layer cannot process non-sequence input (shape: " + inputShape + ").\n" +
+                    "GRU requires 2D input: [sequenceLength, features]\n\n" +
+                    "For time series data, use:\n" +
+                    "  - Layers.inputSequenceNumerical(30, Feature.autoScale()) for numerical sequences\n" +
+                    "  - Layers.inputSequenceEmbedding(...) for token/word sequences\n\n" +
+                    "Note: Layers.inputMixed() creates feature vectors, not sequences.");
+            }
+            if (inputShape.rank() != 2) {
+                throw new IllegalArgumentException(
+                    "GRU layer expects 2D input [sequenceLength, features], got shape: " + inputShape);
             }
         }
         
@@ -1779,9 +1819,19 @@ public class GruLayer implements Layer, Serializable {
         
         @Override
         public void validateInputShape(Shape inputShape) {
-            if (inputShape.rank() != 2 && inputShape.rank() != 1) {
+            if (inputShape.rank() == 1) {
+                // Check if this is likely from inputMixed
                 throw new IllegalArgumentException(
-                    "GRU expects 2D input [sequenceLength, features] or 1D flattened input, got shape: " + inputShape);
+                    "GRU layer cannot process non-sequence input (shape: " + inputShape + ").\n" +
+                    "GRU requires 2D input: [sequenceLength, features]\n\n" +
+                    "For time series data, use:\n" +
+                    "  - Layers.inputSequenceNumerical(30, Feature.autoScale()) for numerical sequences\n" +
+                    "  - Layers.inputSequenceEmbedding(...) for token/word sequences\n\n" +
+                    "Note: Layers.inputMixed() creates feature vectors, not sequences.");
+            }
+            if (inputShape.rank() != 2) {
+                throw new IllegalArgumentException(
+                    "GRU layer expects 2D input [sequenceLength, features], got shape: " + inputShape);
             }
         }
         

@@ -45,7 +45,7 @@ public class SimpleLanguageModelTest {
                 .withSeed(12345L)  // Use fixed seed for deterministic test
                 .layer(Layers.inputSequenceEmbedding(3, 10, 16)) // Larger embedding
                 .layer(Layers.hiddenDenseRelu(32)) // Dense layers work better for simple patterns
-                .layer(Layers.hiddenDenseRelu(16))
+                //.layer(Layers.hiddenDenseRelu(16))
                 .output(Layers.outputSoftmaxCrossEntropy(10))
         );
         

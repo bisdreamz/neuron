@@ -12,6 +12,7 @@ import dev.neuronic.net.layers.LayerNormLayer;
 import dev.neuronic.net.layers.MixedFeatureInputLayer;
 import dev.neuronic.net.optimizers.Optimizer;
 import dev.neuronic.net.outputs.*;
+import dev.neuronic.net.layers.SequenceNumericalInputLayer;
 
 /**
  * Convenient factory for all layer types.
@@ -222,6 +223,82 @@ public final class Layers {
                                                     WeightInitStrategy initStrategy) {
         return InputSequenceEmbeddingLayer.spec(sequenceLength, sharedVocabSize, embeddingDim, 
                                                optimizer, initStrategy);
+    }
+    
+    /**
+     * Input layer for numerical time series data with automatic scaling.
+     * 
+     * <p>Converts sequences of numerical values (like daily revenue, temperature, stock prices)
+     * into properly shaped tensors for RNN/GRU/LSTM processing. Each timestep has a single
+     * numerical feature that can be auto-scaled, normalized, or passed through.
+     * 
+     * <p><b>Perfect for:</b>
+     * <ul>
+     *   <li>Financial time series (stock prices, revenue, trading volume)</li>
+     *   <li>Sensor data (temperature, pressure, speed)</li>
+     *   <li>Business metrics (daily sales, user counts, conversion rates)</li>
+     *   <li>Any single-variable time series data</li>
+     * </ul>
+     * 
+     * <p><b>Example - Revenue Prediction:</b>
+     * <pre>{@code
+     * NeuralNet model = NeuralNet.newBuilder()
+     *     .setDefaultOptimizer(new AdamWOptimizer(0.001f, 0.01f))
+     *     .layer(Layers.inputSequenceNumerical(30, Feature.autoScale()))  // 30 days of revenue
+     *     .layer(Layers.hiddenGruLast(64))  // Process temporal patterns
+     *     .layer(Layers.hiddenDenseRelu(128))  // Final transformation
+     *     .output(Layers.outputLinearRegression(1));  // Predict next day's revenue
+     * 
+     * // Input: array of 30 daily revenue values
+     * float[] last30Days = {1250.0f, 1320.0f, 1180.0f, ..., 1420.0f};
+     * float[] prediction = model.predict(last30Days);
+     * }</pre>
+     * 
+     * <p><b>Feature Types Supported:</b>
+     * <ul>
+     *   <li>{@code Feature.autoScale()}: Auto-scales values to [0,1] based on observed range</li>
+     *   <li>{@code Feature.autoScale(min, max)}: Scales to [0,1] with fixed bounds</li>
+     *   <li>{@code Feature.autoNormalize()}: Z-score normalization (mean=0, std=1)</li>
+     *   <li>{@code Feature.passthrough()}: No transformation, use raw values</li>
+     * </ul>
+     * 
+     * <p><b>Output Shape:</b> [sequenceLength, 1] - Compatible with GRU/LSTM layers
+     * 
+     * @param sequenceLength number of timesteps in the sequence
+     * @param feature the numerical feature configuration (scaling type)
+     * @param optimizer optimizer for any learnable parameters (if applicable)
+     * @return sequence numerical input layer spec
+     */
+    public static Layer.Spec inputSequenceNumerical(int sequenceLength, Feature feature, Optimizer optimizer) {
+        if (sequenceLength <= 0) {
+            throw new IllegalArgumentException("Sequence length must be positive: " + sequenceLength);
+        }
+        if (feature == null) {
+            throw new IllegalArgumentException("Feature configuration cannot be null");
+        }
+        
+        // Validate feature type
+        Feature.Type type = feature.getType();
+        if (type != Feature.Type.PASSTHROUGH && 
+            type != Feature.Type.AUTO_NORMALIZE && 
+            type != Feature.Type.SCALE_BOUNDED) {
+            throw new IllegalArgumentException(
+                "inputSequenceNumerical only supports numerical features: " +
+                "PASSTHROUGH, AUTO_NORMALIZE, or SCALE_BOUNDED. Got: " + type);
+        }
+        
+        return SequenceNumericalInputLayer.spec(sequenceLength, feature, optimizer);
+    }
+    
+    /**
+     * Input layer for numerical time series using default optimizer.
+     * 
+     * @param sequenceLength number of timesteps in the sequence
+     * @param feature the numerical feature configuration
+     * @return sequence numerical input layer spec
+     */
+    public static Layer.Spec inputSequenceNumerical(int sequenceLength, Feature feature) {
+        return inputSequenceNumerical(sequenceLength, feature, null);
     }
     
     /**
